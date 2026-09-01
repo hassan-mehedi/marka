@@ -175,14 +175,30 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         view.window?.makeFirstResponder(textView)
     }
 
+    private var lastOutline: [OutlineItem] = []
+
     private func updateOutline() {
-        onOutlineChange?(MarkdownParser.outline(in: textView.string))
+        let items = MarkdownParser.outline(in: textView.string)
+        let changed = items != lastOutline
+        lastOutline = items
+        onOutlineChange?(items)
+        if changed, textView.string.contains("[TOC]") || textView.string.contains("[toc]") {
+            refreshDisplayParagraphs()
+        }
     }
 
     private func updateWordCount() {
         let text = textView.string
         let words = text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
         statusLabel.stringValue = "\(words) words · \(text.count) characters"
+    }
+
+    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+        guard let url = link as? URL, url.scheme == "marka-jump" else { return false }
+        if let location = Int(url.lastPathComponent) {
+            jump(to: location)
+        }
+        return true
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
@@ -549,6 +565,11 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
             return math
         }
 
+        if MarkdownParser.isTOCLine(line), !selectionTouches(range, selection),
+           let toc = tocParagraph(newline: hadNewline) {
+            return toc
+        }
+
         if !selectionTouches(range, selection) {
             if let path = MarkdownParser.imageLinePath(in: line), let image = resolvedImage(at: path) {
                 return blockParagraph(with: image, centered: false, newline: hadNewline)
@@ -609,6 +630,33 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
             return Self.collapsedParagraph()
         }
         return blockParagraph(with: image, centered: true, newline: true)
+    }
+
+    private func tocParagraph(newline: Bool) -> NSTextParagraph? {
+        let items = lastOutline
+        guard !items.isEmpty else { return nil }
+        let theme = ThemeManager.shared.current
+        let result = NSMutableAttributedString()
+        let baseLevel = items.map(\.level).min() ?? 1
+        for (offset, item) in items.enumerated() {
+            let indent = String(repeating: "      ", count: item.level - baseLevel)
+            var attributes: [NSAttributedString.Key: Any] = [
+                .font: item.level == baseLevel
+                    ? NSFontManager.shared.convert(theme.baseFont, toHaveTrait: .boldFontMask)
+                    : theme.baseFont,
+                .foregroundColor: theme.resolvedLink,
+            ]
+            if let url = URL(string: "marka-jump://heading/\(item.location)") {
+                attributes[.link] = url
+            }
+            // U+2028 keeps the whole list inside one text paragraph.
+            let separator = offset == items.count - 1 ? "" : "\u{2028}"
+            result.append(NSAttributedString(string: indent + item.title + separator, attributes: attributes))
+        }
+        if newline {
+            result.append(NSAttributedString(string: "\n", attributes: [.font: theme.baseFont]))
+        }
+        return NSTextParagraph(attributedString: result)
     }
 
     private static func collapsedParagraph() -> NSTextParagraph {

@@ -244,3 +244,10 @@ import Testing
     let items = MarkdownParser.outline(in: text)
     #expect(items.map(\.title) == ["Real", "Second"])
 }
+
+@Test func tocLineDetection() {
+    #expect(MarkdownParser.isTOCLine("[TOC]"))
+    #expect(MarkdownParser.isTOCLine("  [toc]  "))
+    #expect(!MarkdownParser.isTOCLine("[TOC] extra"))
+    #expect(!MarkdownParser.isTOCLine("text [TOC]"))
+}

@@ -4,7 +4,7 @@ import Testing
 
 @Test func htmlHeadingAndParagraph() {
     let html = HTMLExporter.fragment(from: "## Title\n\nSome **bold** text.\n")
-    #expect(html.contains("<h2>Title</h2>"))
+    #expect(html.contains("<h2 id=\"title\">Title</h2>"))
     #expect(html.contains("<p>Some <strong>bold</strong> text.</p>"))
 }
 
@@ -97,5 +97,15 @@ import Testing
 @Test func htmlSkipsFrontMatter() {
     let html = HTMLExporter.fragment(from: "---\ntitle: Doc\n---\n# Heading\n")
     #expect(!html.contains("title: Doc"))
-    #expect(html.contains("<h1>Heading</h1>"))
+    #expect(html.contains("<h1 id=\"heading\">Heading</h1>"))
+}
+
+@Test func htmlTOCAndHeadingAnchors() {
+    let html = HTMLExporter.fragment(from: "[TOC]\n\n# First Part\n\n## Sub Section\n\n# First Part\n")
+    #expect(html.contains("<h1 id=\"first-part\">First Part</h1>"))
+    #expect(html.contains("<h2 id=\"sub-section\">Sub Section</h2>"))
+    #expect(html.contains("<h1 id=\"first-part-2\">First Part</h1>"))
+    #expect(html.contains("<nav class=\"toc\">"))
+    #expect(html.contains("<a href=\"#first-part\">First Part</a>"))
+    #expect(html.contains("<a href=\"#sub-section\">Sub Section</a>"))
 }

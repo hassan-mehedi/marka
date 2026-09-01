@@ -198,6 +198,9 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
             dimIfUnfocused(paragraph, storage: storage, selection: selection)
             return
         case .paragraph:
+            if MarkdownParser.isTOCLine(trimmed) {
+                storage.addAttribute(.foregroundColor, value: theme.resolvedMarker, range: paragraph)
+            }
             styleTableRowIfNeeded(trimmed, paragraph: paragraph, ns: ns, storage: storage)
         }
 

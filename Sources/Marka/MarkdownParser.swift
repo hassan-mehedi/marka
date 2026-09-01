@@ -246,6 +246,10 @@ enum MarkdownParser {
         return ns.substring(with: m.range(at: 1))
     }
 
+    static func isTOCLine(_ line: String) -> Bool {
+        line.trimmingCharacters(in: .whitespaces).lowercased() == "[toc]"
+    }
+
     static func frontMatterRange(in text: String) -> NSRange? {
         let ns = text as NSString
         var sawOpener = false

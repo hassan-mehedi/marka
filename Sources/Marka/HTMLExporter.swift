@@ -41,6 +41,15 @@ enum HTMLExporter {
         let ns = markdown as NSString
         let fences = MarkdownParser.fences(in: markdown)
         let mathBlocks = MarkdownParser.mathBlocks(in: markdown, excluding: fences)
+        let outline = MarkdownParser.outline(in: markdown)
+        var slugs: [Int: String] = [:]
+        var usedSlugs: [String: Int] = [:]
+        for item in outline {
+            let base = slugify(item.title)
+            let count = usedSlugs[base, default: 0]
+            usedSlugs[base] = count + 1
+            slugs[item.location] = count == 0 ? base : "\(base)-\(count + 1)"
+        }
         var lines: [String] = []
         var lineStarts: [Int] = []
         var location = 0
@@ -103,6 +112,12 @@ enum HTMLExporter {
                 continue
             }
 
+            if MarkdownParser.isTOCLine(line) {
+                html += toc(outline, slugs: slugs)
+                index += 1
+                continue
+            }
+
             if let path = MarkdownParser.imageLinePath(in: line) {
                 html += "<p><img src=\"\(escape(path))\"></p>\n"
                 index += 1
@@ -116,7 +131,8 @@ enum HTMLExporter {
                 continue
             case let .heading(level, marker):
                 let content = (line as NSString).substring(from: NSMaxRange(marker))
-                html += "<h\(level)>\(inline(content))</h\(level)>\n"
+                let id = slugs[lineStarts[index]].map { " id=\"\($0)\"" } ?? ""
+                html += "<h\(level)\(id)>\(inline(content))</h\(level)>\n"
                 index += 1
                 continue
             case .blockquote:
@@ -229,6 +245,47 @@ enum HTMLExporter {
             index += 1
         }
         return html + "</tbody>\n</table>\n"
+    }
+
+    private static func toc(_ items: [OutlineItem], slugs: [Int: String]) -> String {
+        guard !items.isEmpty else { return "" }
+        let base = items.map(\.level).min() ?? 1
+        var html = "<nav class=\"toc\">\n"
+        var level = base - 1
+        for item in items {
+            let target = max(item.level, base)
+            while level < target {
+                html += "<ul>\n"
+                level += 1
+            }
+            while level > target {
+                html += "</ul>\n"
+                level -= 1
+            }
+            html += "<li><a href=\"#\(slugs[item.location] ?? "")\">\(inline(item.title))</a></li>\n"
+        }
+        while level >= base {
+            html += "</ul>\n"
+            level -= 1
+        }
+        return html + "</nav>\n"
+    }
+
+    private static func slugify(_ title: String) -> String {
+        let lowered = title.lowercased()
+        var slug = ""
+        var lastWasDash = true
+        for scalar in lowered.unicodeScalars {
+            if CharacterSet.alphanumerics.contains(scalar) {
+                slug.unicodeScalars.append(scalar)
+                lastWasDash = false
+            } else if !lastWasDash {
+                slug.append("-")
+                lastWasDash = true
+            }
+        }
+        while slug.hasSuffix("-") { slug.removeLast() }
+        return slug.isEmpty ? "section" : slug
     }
 
     private static func inline(_ text: String) -> String {
