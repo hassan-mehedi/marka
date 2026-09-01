@@ -248,9 +248,40 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         return true
     }
 
+    private var lastSelection = NSRange(location: 0, length: 0)
+    private var correctingSelection = false
+
     func textViewDidChangeSelection(_ notification: Notification) {
+        if !correctingSelection {
+            correctCaretAfterReveal()
+        }
+        lastSelection = textView.selectedRange()
         highlighter.handleSelectionChange()
         recenterCaret()
+    }
+
+    // A collapsed paragraph lays out fewer characters than the source holds,
+    // so a click into it lands the caret short by the hidden width. Remap the
+    // display column back to a source offset the moment the caret enters.
+    private func correctCaretAfterReveal() {
+        let selection = textView.selectedRange()
+        guard selection.length == 0, !highlighter.revealAllMarkers else { return }
+        let ns = textView.string as NSString
+        guard selection.location <= ns.length else { return }
+        let paragraph = ns.paragraphRange(for: selection)
+        guard paragraph.length > 0, !isLiteralParagraph(paragraph) else { return }
+        guard !selectionTouches(paragraph, lastSelection) else { return }
+
+        let column = selection.location - paragraph.location
+        guard column > 0 else { return }
+        var line = ns.substring(with: paragraph)
+        if line.hasSuffix("\n") { line.removeLast() }
+        let source = min(Self.sourceOffset(forDisplayColumn: column, in: line), (line as NSString).length)
+        guard source != column else { return }
+
+        correctingSelection = true
+        textView.setSelectedRange(NSRange(location: paragraph.location + source, length: 0))
+        correctingSelection = false
     }
 
     private static let autoPairs: [String: String] = [
@@ -703,7 +734,103 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
             }
         }
 
-        return inlineMathParagraph(for: range, line: line, storage: storage, selection: selection)
+        return styledParagraph(for: range, line: line, storage: storage, selection: selection)
+    }
+
+    // Source ranges that render with a different length: markers vanish,
+    // an inline math span becomes a single attachment character.
+    nonisolated static func displayReplacements(in line: String) -> [(range: NSRange, displayLength: Int)] {
+        var replacements: [(NSRange, Int)] = []
+        if case let .heading(_, marker) = MarkdownParser.blockKind(of: line) {
+            replacements.append((marker, 0))
+        }
+        for span in MarkdownParser.inlineSpans(in: line) {
+            replacements.append((span.openMarker, 0))
+            replacements.append((span.closeMarker, 0))
+        }
+        replacements += MarkdownParser.inlineMathSpans(in: line).map { ($0.range, 1) }
+        replacements.sort { $0.0.location < $1.0.location }
+
+        var result: [(NSRange, Int)] = []
+        for replacement in replacements {
+            if let last = result.last, NSMaxRange(last.0) > replacement.0.location { continue }
+            result.append(replacement)
+        }
+        return result
+    }
+
+    nonisolated static func sourceOffset(forDisplayColumn column: Int, in line: String) -> Int {
+        var source = 0
+        var display = 0
+        for (range, displayLength) in displayReplacements(in: line) {
+            let visible = range.location - source
+            if display + visible >= column {
+                return source + (column - display)
+            }
+            display += visible
+            source = range.location
+            if display + displayLength > column {
+                return source
+            }
+            display += displayLength
+            source = NSMaxRange(range)
+        }
+        return source + (column - display)
+    }
+
+    private func isLiteralParagraph(_ range: NSRange) -> Bool {
+        if highlighter.fences.blocks.contains(where: { NSLocationInRange(range.location, $0.fullRange) }) { return true }
+        if highlighter.fences.delimiterLines.contains(where: { NSLocationInRange(range.location, $0) }) { return true }
+        if highlighter.mathBlocks.contains(where: { NSLocationInRange(range.location, $0.fullRange) }) { return true }
+        if let frontMatter = highlighter.frontMatter, NSLocationInRange(range.location, frontMatter) { return true }
+        return false
+    }
+
+    private func styledParagraph(
+        for range: NSRange,
+        line: String,
+        storage: NSTextStorage,
+        selection: NSRange
+    ) -> NSTextParagraph? {
+        guard !highlighter.revealAllMarkers, !isLiteralParagraph(range) else { return nil }
+
+        let lineNS = line as NSString
+        let paragraphUntouched = !selectionTouches(range, selection)
+        let display = NSMutableAttributedString(attributedString: storage.attributedSubstring(from: range))
+        var changed = false
+
+        for (span, displayLength) in Self.displayReplacements(in: line).reversed() {
+            if displayLength == 1 {
+                let mathSpans = MarkdownParser.inlineMathSpans(in: line)
+                guard let math = mathSpans.first(where: { $0.range == span }) else { continue }
+                let global = NSRange(location: range.location + span.location, length: span.length)
+                guard !selectionTouches(global, selection) else { continue }
+                guard let image = MathRenderer.shared.image(
+                    latex: lineNS.substring(with: math.content),
+                    fontSize: ThemeManager.shared.current.baseFont.pointSize,
+                    display: false,
+                    color: mathColor
+                ) else { continue }
+
+                let attachment = NSTextAttachment()
+                attachment.image = image
+                // Sit the formula on the text baseline instead of the line bottom.
+                attachment.bounds = NSRect(
+                    x: 0,
+                    y: ThemeManager.shared.current.baseFont.descender * 0.6,
+                    width: image.size.width,
+                    height: image.size.height
+                )
+                display.replaceCharacters(in: span, with: NSAttributedString(attachment: attachment))
+                changed = true
+            } else if paragraphUntouched {
+                display.deleteCharacters(in: span)
+                changed = true
+            }
+        }
+
+        guard changed else { return nil }
+        return NSTextParagraph(attributedString: display)
     }
 
     private func mermaidParagraph(for range: NSRange, selection: NSRange) -> NSTextParagraph? {
@@ -791,45 +918,6 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         }
     }
 
-    private func inlineMathParagraph(
-        for range: NSRange,
-        line: String,
-        storage: NSTextStorage,
-        selection: NSRange
-    ) -> NSTextParagraph? {
-        let spans = MarkdownParser.inlineMathSpans(in: line)
-        guard !spans.isEmpty else { return nil }
-
-        let lineNS = line as NSString
-        let display = NSMutableAttributedString(attributedString: storage.attributedSubstring(from: range))
-        var replacedAny = false
-
-        for span in spans.reversed() {
-            let global = NSRange(location: range.location + span.range.location, length: span.range.length)
-            guard !selectionTouches(global, selection) else { continue }
-            guard let image = MathRenderer.shared.image(
-                latex: lineNS.substring(with: span.content),
-                fontSize: ThemeManager.shared.current.baseFont.pointSize,
-                display: false,
-                color: mathColor
-            ) else { continue }
-
-            let attachment = NSTextAttachment()
-            attachment.image = image
-            // Sit the formula on the text baseline instead of the line bottom.
-            attachment.bounds = NSRect(
-                x: 0,
-                y: ThemeManager.shared.current.baseFont.descender * 0.6,
-                width: image.size.width,
-                height: image.size.height
-            )
-            display.replaceCharacters(in: span.range, with: NSAttributedString(attachment: attachment))
-            replacedAny = true
-        }
-
-        guard replacedAny else { return nil }
-        return NSTextParagraph(attributedString: display)
-    }
 
     private func blockParagraph(with image: NSImage, centered: Bool, newline: Bool) -> NSTextParagraph {
         let insets = textView.textContainerInset.width * 2

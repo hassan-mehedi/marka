@@ -26,7 +26,11 @@ swift test \
 
 Rendered in place: headings, bold, italic, bold-italic, strikethrough, inline
 code, links, list markers, task lists, blockquotes, fenced code blocks,
-horizontal rules, and YAML front matter (styled as a dimmed metadata block,
+horizontal rules, and YAML front matter. Syntax markers take zero width on
+lines the caret is not in: the display paragraph drops the marker characters
+and a click into such a line remaps the display column back to the source
+offset. On the caret's own line, markers hide per span with a 0.01pt clear
+font and reveal as the caret enters each span. (styled as a dimmed metadata block,
 skipped by the outline and the HTML export). A `[TOC]` line renders as a
 clickable table of contents; the HTML export turns it into anchor links on
 the headings. Footnote references (`[^1]`) render as raised superscripts and
@@ -107,5 +111,3 @@ Folder) to add your own:
 }
 ```
 
-Not built yet: true hidden-marker layout for text spans (markers currently
-shrink to a 0.01pt clear font).
