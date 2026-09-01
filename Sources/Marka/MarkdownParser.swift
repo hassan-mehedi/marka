@@ -23,12 +23,17 @@ enum BlockKind: Equatable {
     case paragraph
 }
 
+struct FenceBlock: Equatable {
+    var range: NSRange
+    var language: String
+}
+
 struct FenceInfo: Equatable {
     var delimiterLines: [NSRange] = []
-    var contentRanges: [NSRange] = []
+    var blocks: [FenceBlock] = []
 
-    func isContent(_ paragraph: NSRange) -> Bool {
-        contentRanges.contains { NSLocationInRange(paragraph.location, $0) }
+    func block(containing paragraph: NSRange) -> FenceBlock? {
+        blocks.first { NSLocationInRange(paragraph.location, $0.range) }
     }
 }
 
@@ -108,20 +113,28 @@ enum MarkdownParser {
         let ns = text as NSString
         var info = FenceInfo()
         var openContentStart: Int?
+        var openLanguage = ""
 
         ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: .byLines) { _, lineRange, enclosingRange, _ in
             let line = ns.substring(with: lineRange)
             guard line.hasPrefix("```") || line.hasPrefix("~~~") else { return }
             info.delimiterLines.append(lineRange)
             if let start = openContentStart {
-                info.contentRanges.append(NSRange(location: start, length: lineRange.location - start))
+                info.blocks.append(FenceBlock(
+                    range: NSRange(location: start, length: lineRange.location - start),
+                    language: openLanguage
+                ))
                 openContentStart = nil
             } else {
                 openContentStart = NSMaxRange(enclosingRange)
+                openLanguage = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
             }
         }
         if let start = openContentStart, start < ns.length {
-            info.contentRanges.append(NSRange(location: start, length: ns.length - start))
+            info.blocks.append(FenceBlock(
+                range: NSRange(location: start, length: ns.length - start),
+                language: openLanguage
+            ))
         }
         return info
     }

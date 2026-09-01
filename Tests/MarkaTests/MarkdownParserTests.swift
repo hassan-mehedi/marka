@@ -89,18 +89,33 @@ import Testing
 }
 
 @Test func fenceRegions() {
-    let text = "before\n```\ncode line\n```\nafter"
+    let text = "before\n```swift\ncode line\n```\nafter"
     let fences = MarkdownParser.fences(in: text)
     #expect(fences.delimiterLines.count == 2)
-    #expect(fences.contentRanges.count == 1)
-    let content = (text as NSString).substring(with: fences.contentRanges[0])
+    #expect(fences.blocks.count == 1)
+    #expect(fences.blocks[0].language == "swift")
+    let content = (text as NSString).substring(with: fences.blocks[0].range)
     #expect(content == "code line\n")
 }
 
 @Test func unterminatedFenceRunsToEnd() {
     let text = "```\ncode"
     let fences = MarkdownParser.fences(in: text)
-    #expect(fences.contentRanges.count == 1)
-    let content = (text as NSString).substring(with: fences.contentRanges[0])
+    #expect(fences.blocks.count == 1)
+    #expect(fences.blocks[0].language.isEmpty)
+    let content = (text as NSString).substring(with: fences.blocks[0].range)
     #expect(content == "code")
+}
+
+@Test @MainActor func treeSitterHighlightsSwiftCode() {
+    let tokens = CodeHighlighter.shared.highlights(for: "let x = \"hi\" // note\n", language: "swift")
+    #expect(!tokens.isEmpty)
+    let names = Set(tokens.map { String($0.name.split(separator: ".").first ?? "") })
+    #expect(names.contains("keyword"))
+    #expect(names.contains("comment"))
+}
+
+@Test @MainActor func unknownLanguageYieldsNoTokens() {
+    let tokens = CodeHighlighter.shared.highlights(for: "let x = 1", language: "brainfuck")
+    #expect(tokens.isEmpty)
 }

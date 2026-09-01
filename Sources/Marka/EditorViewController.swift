@@ -461,8 +461,11 @@ final class EditorViewController: NSViewController, NSTextViewDelegate {
 
     > A blockquote line.
 
-    ```
-    let code = "fenced code block"
+    ```swift
+    // Syntax highlighting via tree-sitter
+    func greet(_ name: String) -> String {
+        return "Hello, \\(name)! Count: \\(42)"
+    }
     ```
 
     ---

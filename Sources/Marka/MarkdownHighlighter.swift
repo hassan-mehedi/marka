@@ -33,6 +33,7 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
     func highlightAll() {
         guard let storage = textView.textStorage else { return }
         fences = MarkdownParser.fences(in: storage.string)
+        codeTokenCache.removeAll()
         restyle(paragraphsIn: NSRange(location: 0, length: storage.length), storage: storage)
         pendingEditedRange = nil
         previousSelection = textView.selectedRange()
@@ -43,6 +44,7 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
         let newFences = MarkdownParser.fences(in: storage.string)
         if newFences != fences {
             fences = newFences
+            codeTokenCache.removeAll()
             restyle(paragraphsIn: NSRange(location: 0, length: storage.length), storage: storage)
         } else if let edited = pendingEditedRange {
             restyle(paragraphsIn: edited, storage: storage)
@@ -96,8 +98,15 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
     private func styleParagraph(_ paragraph: NSRange, ns: NSString, storage: NSTextStorage, selection: NSRange) {
         storage.setAttributes([.font: Self.baseFont, .foregroundColor: NSColor.textColor], range: paragraph)
 
-        if fences.isContent(paragraph) {
+        if let block = fences.block(containing: paragraph) {
             storage.addAttributes([.font: Self.codeFont, .backgroundColor: Self.codeBackground], range: paragraph)
+            for token in tokens(for: block, ns: ns) {
+                let global = shifted(token.range, by: block.range.location)
+                let intersection = NSIntersectionRange(global, paragraph)
+                if intersection.length > 0, let color = Self.tokenColors[String(token.name.split(separator: ".").first ?? "")] {
+                    storage.addAttribute(.foregroundColor, value: color, range: intersection)
+                }
+            }
             dimIfUnfocused(paragraph, storage: storage, selection: selection)
             return
         }
@@ -150,6 +159,36 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
         }
 
         dimIfUnfocused(paragraph, storage: storage, selection: selection)
+    }
+
+    private static let tokenColors: [String: NSColor] = [
+        "keyword": .systemPurple,
+        "string": .systemGreen,
+        "comment": .secondaryLabelColor,
+        "number": .systemBlue,
+        "function": .systemTeal,
+        "type": .systemIndigo,
+        "constant": .systemBlue,
+        "constructor": .systemIndigo,
+        "operator": .systemOrange,
+        "attribute": .systemBrown,
+        "boolean": .systemBlue,
+        "property": .systemTeal,
+        "label": .systemBrown,
+        "escape": .systemOrange,
+    ]
+
+    private var codeTokenCache: [Int: (code: String, tokens: [CodeHighlighter.Token])] = [:]
+
+    private func tokens(for block: FenceBlock, ns: NSString) -> [CodeHighlighter.Token] {
+        guard !block.language.isEmpty else { return [] }
+        let code = ns.substring(with: block.range)
+        if let cached = codeTokenCache[block.range.location], cached.code == code {
+            return cached.tokens
+        }
+        let tokens = CodeHighlighter.shared.highlights(for: code, language: block.language)
+        codeTokenCache[block.range.location] = (code, tokens)
+        return tokens
     }
 
     private func dimIfUnfocused(_ paragraph: NSRange, storage: NSTextStorage, selection: NSRange) {
