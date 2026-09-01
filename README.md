@@ -1,18 +1,55 @@
 # Marka
 
 A native macOS Markdown editor with Typora-style inline WYSIWYG rendering.
-Swift, AppKit, TextKit 2. No Electron.
+Swift, AppKit, TextKit 2. No Electron, no web view for the editor itself.
 
-## Run
+## Features
+
+- Live inline rendering: headings, bold, italic, strikethrough, inline code,
+  links, lists, task lists, blockquotes, tables, horizontal rules, and YAML
+  front matter style themselves as you type. Syntax markers take zero width
+  on lines the caret is not in and reveal when the caret enters a span.
+- Fenced code blocks highlight through tree-sitter grammars, picked by the
+  language tag on the fence.
+- LaTeX math renders natively through SwiftMath: `$E = mc^2$` inline,
+  `$$ ... $$` as a centered block equation. A `$5` price stays literal.
+- Mermaid diagrams render offline from a vendored mermaid 11.15.0 in a
+  hidden WKWebView. Put the caret inside a diagram to edit its source.
+- Images paste or drag in as a saved PNG plus a markdown reference, and an
+  image-only line shows the picture inline.
+- `[TOC]` renders a clickable table of contents. Footnotes render as raised
+  superscripts with dimmed definition lines.
+- Export to PDF, standalone HTML, Word .docx, epub, and LaTeX. Epub and
+  LaTeX go through pandoc (`brew install pandoc`); the rest is native.
+- Themes: Default, GitHub, Night, and Newsprint built in, plus JSON user
+  themes in `~/Library/Application Support/Marka/Themes/`.
+- Sidebar with outline and file tree panes, source mode, focus mode,
+  typewriter mode, smart punctuation, native find and replace, word count
+  with a stats popover.
+- NSDocument under the hood, so tabs, Open Recent, autosave-style revert,
+  and multiple windows work the way macOS users expect.
+
+## Requirements
+
+- macOS 14 or later
+- Swift 6.1+ toolchain (full Xcode or Command Line Tools)
+- pandoc, only for the epub and LaTeX exports
+
+## Build and run
 
 ```sh
-swift run Marka
+swift run Marka          # run straight from SwiftPM
+scripts/make-app.sh      # build/Marka.app with icon and file associations
+open build/Marka.app
 ```
+
+`make-app.sh` builds release by default; pass `debug` for a debug bundle.
+It ad-hoc signs the bundle so Gatekeeper lets it launch locally.
 
 ## Test
 
-With full Xcode installed, `swift test` is enough. With Command Line Tools only,
-the Testing framework needs explicit search paths:
+With full Xcode installed, `swift test` is enough. With Command Line Tools
+only, the Testing framework needs explicit search paths:
 
 ```sh
 swift test \
@@ -22,81 +59,69 @@ swift test \
   -Xlinker -rpath -Xlinker /Library/Developer/CommandLineTools/Library/Developer/usr/lib
 ```
 
-## Status
+For visual checks without a human, launch with `MARKA_SNAPSHOT=/path/out.png`
+and the app writes a window snapshot and quits. `MARKA_SAMPLE=1` loads a
+sample document first, `MARKA_SIDEBAR=files` opens the file tree pane.
 
-Rendered in place: headings, bold, italic, bold-italic, strikethrough, inline
-code, links, list markers, task lists, blockquotes, fenced code blocks,
-horizontal rules, and YAML front matter. Syntax markers take zero width on
-lines the caret is not in: the display paragraph drops the marker characters
-and a click into such a line remaps the display column back to the source
-offset. On the caret's own line, markers hide per span with a 0.01pt clear
-font and reveal as the caret enters each span. (styled as a dimmed metadata block,
-skipped by the outline and the HTML export). A `[TOC]` line renders as a
-clickable table of contents; the HTML export turns it into anchor links on
-the headings. Footnote references (`[^1]`) render as raised superscripts and
-definition lines dim; the HTML export numbers them and links both directions. Syntax markers reveal when the caret enters a span and hide
-when it leaves. Styling is incremental: only the edited paragraphs restyle on
-a keystroke, with a full pass when fence boundaries change.
+## How it works
 
-Format > Smart Punctuation (off by default, persisted) curls quotes and turns
-`--` into an em dash as you type, but leaves code spans, fences, math, front
-matter, horizontal rules, and table separators alone.
+The app is a SwiftPM executable target, no xcodeproj. `scripts/make-app.sh`
+wraps the binary into an app bundle, copies resource bundles, generates the
+icon with `scripts/make-icon.swift`, and ad-hoc signs it.
 
-Editing: Enter continues a list (ordered numbers increment, task boxes reset
-to unchecked), Enter on an empty item ends the list, Tab / Shift-Tab indents,
-and brackets, quotes and markdown markers auto-pair or wrap the selection.
+The editor is one NSTextView on TextKit 2. Three layers cooperate:
 
-Menus and shortcuts: Cmd+O open, Cmd+S save, Shift+Cmd+S save as, Cmd+P print.
-File > Export writes PDF, standalone HTML (MathJax and mermaid load from a CDN
-only when the document uses them), Word .docx (converted from the HTML, so
-math stays as raw TeX there), epub, or LaTeX. The epub and LaTeX exports run
-pandoc (`brew install pandoc`); the others are fully native. Cmd+B/I/E/K formatting, Shift+Cmd+X strikethrough,
-Cmd+1..6 headings, Cmd+0 paragraph. Cmd+/ source mode, Shift+Cmd+O outline
-sidebar (click a heading to jump), Shift+Cmd+F focus mode, Shift+Cmd+T
-typewriter mode. Word count sits in the status bar; click it for a popover
-with characters, lines, and reading time. Cmd+F opens the native
-find bar (Alt+Cmd+F for find and replace) with incremental search.
+- `MarkdownParser` is pure functions from a line (or the whole text) to
+  structure: block kind, inline spans, fences, math blocks, front matter,
+  footnotes, outline. It holds no state, which is what makes it testable.
+- `MarkdownHighlighter` styles text storage attributes incrementally from
+  `NSTextStorageDelegate`. A keystroke restyles only the edited paragraphs;
+  a full pass runs only when fence, math block, or front matter boundaries
+  change. Colors and fonts come from the active `Theme`.
+- `EditorViewController` implements `NSTextContentStorageDelegate` and
+  substitutes display paragraphs: marker characters drop out entirely on
+  paragraphs the caret is not in, inline math becomes an image attachment,
+  image-only lines become the picture, mermaid fences collapse to the
+  rendered diagram. When a click lands in a substituted paragraph, the
+  display column maps back to the source offset so the caret is placed
+  correctly (`displayReplacements` / `sourceOffset`).
 
-Fenced code blocks highlight via tree-sitter (CodeEditLanguages grammars,
-language tag on the fence picks the grammar). Table rows style in place:
-pipes dim, the header row above a separator goes bold. Pasting or dropping an image
-saves a PNG (into assets/ next to the file, or the temp folder for unsaved
-documents), inserts the markdown reference, and an image-only line renders
-the picture inline; the raw markdown comes back when the caret enters it.
+The document text is always the plain markdown source. Rendering never
+mutates it; only the display layer differs. That single invariant is why
+source mode, export, and save need no conversion step.
 
-Set MARKA_SNAPSHOT=/path/out.png to launch, write a window snapshot, and
-quit (used for automated visual checks).
+Supporting pieces: `MathRenderer` (SwiftMath, cached per color and size),
+`MermaidRenderer` (offscreen WKWebView, cached per source and appearance),
+`CodeHighlighter` (tree-sitter via CodeEditLanguages), `HTMLExporter`
+(hand-rolled markdown to HTML for the HTML, PDF, and docx exports),
+`PandocExporter` (Process wrapper), `Theme`/`ThemeManager`, and the
+NSDocument plumbing in `MarkaDocument`.
 
-LaTeX math renders through SwiftMath, natively, with no web view: `$E = mc^2$`
-inline and `$$ ... $$` on its own line as a centered equation. A `$5` price or
-a `` `$x$` `` code span stays literal text.
+## Contributing
 
-Mermaid diagrams render in a hidden WKWebView from a vendored copy of
-mermaid 11.15.0, so no network access is needed. A ```` ```mermaid ```` fence
-collapses to the rendered diagram; put the caret inside to edit the source.
-Rendered diagrams are cached per source and per light/dark appearance.
+Bug reports with a minimal markdown snippet that misrenders are the most
+useful thing you can send.
 
-The app bundle carries the icon and claims `.md` and `.txt` files:
+For code changes:
 
-```sh
-scripts/make-app.sh          # build/Marka.app, release by default
-open build/Marka.app
-```
+1. Keep `MarkdownParser` pure. New syntax support starts there, with tests,
+   before any UI wiring.
+2. Match the existing style: no comments where the code already says it,
+   `nonisolated static` for logic tests need to call, theme colors through
+   `Theme` accessors, never hard-coded NSColors in the highlighter.
+3. Run the test suite (see above) and add tests beside the feature:
+   parser logic in `MarkdownParserTests`, display substitution in
+   `HiddenMarkerTests`, export in `HTMLExporterTests`.
+4. For anything visual, attach a `MARKA_SNAPSHOT` capture to the PR.
+5. One feature per commit, imperative subject line, no attribution lines.
 
-Documents use NSDocument, so multiple windows, tabs, Open Recent, and the
-standard save and revert flows work.
+The codebase is small on purpose (about 3,000 lines of app code). Prefer
+extending an existing type over adding a new abstraction.
 
-The sidebar (Shift+Cmd+O) has two panes: Outline lists the headings, Files
-browses the folder of the open document (markdown and text files plus
-subfolders; click a file to open it). The pane choice persists across
-launches.
+## Themes
 
-View > Theme switches themes. Built in: Default (follows the system
-appearance), GitHub, Night, and Newsprint (Georgia on sepia). A theme sets
-fonts, editor colors, code token colors, and the window appearance, and the
-choice persists across launches. Drop a JSON file into
-`~/Library/Application Support/Marka/Themes/` (View > Theme > Open Themes
-Folder) to add your own:
+Drop a JSON file into `~/Library/Application Support/Marka/Themes/`
+(View > Theme > Open Themes Folder):
 
 ```json
 {
@@ -111,3 +136,5 @@ Folder) to add your own:
 }
 ```
 
+Every key except `name` is optional; missing values fall back to the
+system appearance.
