@@ -34,8 +34,10 @@ Editing: Enter continues a list (ordered numbers increment, task boxes reset
 to unchecked), Enter on an empty item ends the list, Tab / Shift-Tab indents,
 and brackets, quotes and markdown markers auto-pair or wrap the selection.
 
-Menus and shortcuts: Cmd+O open, Cmd+S save, Shift+Cmd+S save as, Cmd+P print,
-File > Export as PDF. Cmd+B/I/E/K formatting, Shift+Cmd+X strikethrough,
+Menus and shortcuts: Cmd+O open, Cmd+S save, Shift+Cmd+S save as, Cmd+P print.
+File > Export writes PDF, standalone HTML (MathJax and mermaid load from a CDN
+only when the document uses them), or Word .docx (converted from the HTML, so
+math stays as raw TeX there). Cmd+B/I/E/K formatting, Shift+Cmd+X strikethrough,
 Cmd+1..6 headings, Cmd+0 paragraph. Cmd+/ source mode, Shift+Cmd+O outline
 sidebar (click a heading to jump), Shift+Cmd+F focus mode, Shift+Cmd+T
 typewriter mode. Word count sits in the status bar.
@@ -93,6 +95,6 @@ Folder) to add your own:
 }
 ```
 
-Not built yet: docx/LaTeX/epub export, multi-line `$$` blocks, and true
+Not built yet: LaTeX/epub export (needs pandoc), multi-line `$$` blocks, and true
 hidden-marker layout for text spans (markers currently
 shrink to a 0.01pt clear font).

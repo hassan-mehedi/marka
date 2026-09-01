@@ -417,6 +417,51 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         return image
     }
 
+    @objc func exportHTML(_ sender: Any?) {
+        guard let url = runExportPanel(extension: "html", type: .html) else { return }
+        let title = fileURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
+        let html = HTMLExporter.document(from: textView.string, title: title)
+        do {
+            try Data(html.utf8).write(to: url)
+        } catch {
+            presentError(error)
+        }
+    }
+
+    @objc func exportDocx(_ sender: Any?) {
+        guard let url = runExportPanel(
+            extension: "docx",
+            type: UTType("org.openxmlformats.wordprocessingml.document") ?? .data
+        ) else { return }
+        let fragment = HTMLExporter.fragment(from: textView.string)
+        do {
+            let attributed = try NSAttributedString(
+                data: Data(fragment.utf8),
+                options: [
+                    .documentType: NSAttributedString.DocumentType.html,
+                    .characterEncoding: String.Encoding.utf8.rawValue,
+                ],
+                documentAttributes: nil
+            )
+            let data = try attributed.data(
+                from: NSRange(location: 0, length: attributed.length),
+                documentAttributes: [.documentType: NSAttributedString.DocumentType.officeOpenXML]
+            )
+            try data.write(to: url)
+        } catch {
+            presentError(error)
+        }
+    }
+
+    private func runExportPanel(extension ext: String, type: UTType) -> URL? {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [type]
+        let baseName = fileURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
+        panel.nameFieldStringValue = baseName + "." + ext
+        guard panel.runModal() == .OK else { return nil }
+        return panel.url
+    }
+
     @objc func exportPDF(_ sender: Any?) {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.pdf]
