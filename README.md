@@ -21,8 +21,8 @@ Swift, AppKit, TextKit 2. No Electron, no web view for the editor itself.
   superscripts with dimmed definition lines.
 - Export to PDF, standalone HTML, Word .docx, epub, and LaTeX. Epub and
   LaTeX go through pandoc (`brew install pandoc`); the rest is native.
-- Themes: Default, GitHub, Night, and Newsprint built in, plus JSON user
-  themes in `~/Library/Application Support/Marka/Themes/`.
+- Themes: Default, GitHub, GitHub Dark, Dracula, One Dark Pro, Night, and
+  Newsprint built in, plus JSON user themes in `~/Library/Application Support/Marka/Themes/`.
 - Sidebar with outline and file tree panes, source mode, focus mode,
   typewriter mode, smart punctuation, native find and replace, word count
   with a stats popover.

@@ -67,7 +67,7 @@ struct Theme: Equatable {
 }
 
 extension Theme {
-    static let builtIn: [Theme] = [.systemTheme, .github, .night, .newsprint]
+    static let builtIn: [Theme] = [.systemTheme, .github, .githubDark, .dracula, .oneDarkPro, .night, .newsprint]
 
     static let systemTheme = Theme(name: "Default")
 
@@ -87,6 +87,63 @@ extension Theme {
             "constant": "#0550ae", "constructor": "#953800", "operator": "#cf222e",
             "attribute": "#116329", "boolean": "#0550ae", "property": "#0550ae",
             "label": "#953800", "escape": "#cf222e",
+        ].compactMapValues(NSColor.init(hex:))
+    )
+
+    static let githubDark = Theme(
+        name: "GitHub Dark",
+        appearance: .darkAqua,
+        background: NSColor(hex: "#0d1117"),
+        textColor: NSColor(hex: "#e6edf3"),
+        secondaryText: NSColor(hex: "#8b949e"),
+        marker: NSColor(hex: "#6e7681"),
+        accent: NSColor(hex: "#58a6ff"),
+        link: NSColor(hex: "#58a6ff"),
+        codeBackground: NSColor(hex: "#161b22"),
+        tokenColors: [
+            "keyword": "#ff7b72", "string": "#a5d6ff", "comment": "#8b949e",
+            "number": "#79c0ff", "function": "#d2a8ff", "type": "#ffa657",
+            "constant": "#79c0ff", "constructor": "#ffa657", "operator": "#ff7b72",
+            "attribute": "#7ee787", "boolean": "#79c0ff", "property": "#79c0ff",
+            "label": "#ffa657", "escape": "#ff7b72",
+        ].compactMapValues(NSColor.init(hex:))
+    )
+
+    static let dracula = Theme(
+        name: "Dracula",
+        appearance: .darkAqua,
+        background: NSColor(hex: "#282a36"),
+        textColor: NSColor(hex: "#f8f8f2"),
+        secondaryText: NSColor(hex: "#9aa3c7"),
+        marker: NSColor(hex: "#6272a4"),
+        accent: NSColor(hex: "#bd93f9"),
+        link: NSColor(hex: "#8be9fd"),
+        codeBackground: NSColor(hex: "#21222c"),
+        tokenColors: [
+            "keyword": "#ff79c6", "string": "#f1fa8c", "comment": "#6272a4",
+            "number": "#bd93f9", "function": "#50fa7b", "type": "#8be9fd",
+            "constant": "#bd93f9", "constructor": "#8be9fd", "operator": "#ff79c6",
+            "attribute": "#50fa7b", "boolean": "#bd93f9", "property": "#8be9fd",
+            "label": "#ffb86c", "escape": "#ff79c6",
+        ].compactMapValues(NSColor.init(hex:))
+    )
+
+    static let oneDarkPro = Theme(
+        name: "One Dark Pro",
+        appearance: .darkAqua,
+        background: NSColor(hex: "#282c34"),
+        textColor: NSColor(hex: "#abb2bf"),
+        secondaryText: NSColor(hex: "#828997"),
+        marker: NSColor(hex: "#5c6370"),
+        accent: NSColor(hex: "#61afef"),
+        link: NSColor(hex: "#61afef"),
+        codeBackground: NSColor(hex: "#21252b"),
+        tokenColors: [
+            "keyword": "#c678dd", "string": "#98c379", "comment": "#5c6370",
+            "number": "#d19a66", "function": "#61afef", "type": "#e5c07b",
+            "constant": "#d19a66", "constructor": "#e5c07b", "operator": "#56b6c2",
+            "attribute": "#d19a66", "boolean": "#d19a66", "property": "#e06c75",
+            "label": "#d19a66", "escape": "#56b6c2",
         ].compactMapValues(NSColor.init(hex:))
     )
 
