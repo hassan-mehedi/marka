@@ -24,12 +24,22 @@ swift test \
 
 ## Status
 
-Early. Rendered in place: headings, bold, italic, bold-italic, strikethrough,
-inline code, links, list markers, blockquotes, fenced code blocks, and
+Rendered in place: headings, bold, italic, bold-italic, strikethrough, inline
+code, links, list markers, task lists, blockquotes, fenced code blocks, and
 horizontal rules. Syntax markers reveal when the caret enters a span and hide
 when it leaves. Styling is incremental: only the edited paragraphs restyle on
-a keystroke, with a full pass when fence boundaries change. Cmd+O opens a
-file, Cmd+S / Shift+Cmd+S saves.
+a keystroke, with a full pass when fence boundaries change.
 
-Not built yet: tables, images, math, Mermaid, export, themes, true
-hidden-marker layout (markers currently shrink to a 0.01pt clear font).
+Editing: Enter continues a list (ordered numbers increment, task boxes reset
+to unchecked), Enter on an empty item ends the list, Tab / Shift-Tab indents,
+and brackets, quotes and markdown markers auto-pair or wrap the selection.
+
+Menus and shortcuts: Cmd+O open, Cmd+S save, Shift+Cmd+S save as, Cmd+P print,
+File > Export as PDF. Cmd+B/I/E/K formatting, Shift+Cmd+X strikethrough,
+Cmd+1..6 headings, Cmd+0 paragraph. Cmd+/ source mode, Shift+Cmd+O outline
+sidebar (click a heading to jump), Shift+Cmd+F focus mode, Shift+Cmd+T
+typewriter mode. Word count sits in the status bar.
+
+Not built yet: tables, images, math, Mermaid, code syntax highlighting,
+docx/LaTeX/epub export, themes, and true hidden-marker layout (markers
+currently shrink to a 0.01pt clear font).
