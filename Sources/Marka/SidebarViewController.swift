@@ -39,13 +39,17 @@ final class SidebarViewController: NSViewController {
 
         addChild(outline)
         addChild(fileTree)
-        if ProcessInfo.processInfo.environment["MARKA_SIDEBAR"] == "files" {
+        let savedPane = UserDefaults.standard.string(forKey: Self.paneKey)
+        let wantsFiles = ProcessInfo.processInfo.environment["MARKA_SIDEBAR"] == "files" || savedPane == "files"
+        if wantsFiles {
             picker.selectedSegment = 1
             show(fileTree)
         } else {
             show(outline)
         }
     }
+
+    private static let paneKey = "MarkaSidebarPane"
 
     @objc private func paneChanged() {
         if picker.selectedSegment == 0 {
@@ -54,6 +58,7 @@ final class SidebarViewController: NSViewController {
             fileTree.reload()
             show(fileTree)
         }
+        UserDefaults.standard.set(picker.selectedSegment == 0 ? "outline" : "files", forKey: Self.paneKey)
     }
 
     private func show(_ child: NSViewController) {

@@ -64,6 +64,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         statusLabel.font = .systemFont(ofSize: 11)
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        statusLabel.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(statusLabelClicked)))
         self.statusLabel = statusLabel
 
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
@@ -185,6 +186,52 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         if changed, textView.string.contains("[TOC]") || textView.string.contains("[toc]") {
             refreshDisplayParagraphs()
         }
+    }
+
+    @objc private func statusLabelClicked() {
+        let text = textView.string
+        let words = text.split(whereSeparator: { $0.isWhitespace }).count
+        let characters = text.count
+        let withoutSpaces = text.unicodeScalars.filter { !CharacterSet.whitespacesAndNewlines.contains($0) }.count
+        let lines = text.isEmpty ? 0 : text.split(separator: "\n", omittingEmptySubsequences: false).count
+        let minutes = words == 0 ? 0 : max(1, Int((Double(words) / 200).rounded(.up)))
+
+        let rows: [(String, String)] = [
+            ("Words", "\(words)"),
+            ("Characters", "\(characters)"),
+            ("Characters (no spaces)", "\(withoutSpaces)"),
+            ("Lines", "\(lines)"),
+            ("Reading time", minutes == 0 ? "\u{2014}" : "~\(minutes) min"),
+        ]
+
+        let grid = NSGridView(views: rows.map { row in
+            let name = NSTextField(labelWithString: row.0)
+            name.font = .systemFont(ofSize: 12)
+            name.textColor = .secondaryLabelColor
+            let value = NSTextField(labelWithString: row.1)
+            value.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+            value.alignment = .right
+            return [name, value]
+        })
+        grid.columnSpacing = 24
+        grid.rowSpacing = 5
+        grid.translatesAutoresizingMaskIntoConstraints = false
+
+        let content = NSViewController()
+        let container = NSView()
+        container.addSubview(grid)
+        NSLayoutConstraint.activate([
+            grid.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
+            grid.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 14),
+            grid.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -14),
+            grid.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -12),
+        ])
+        content.view = container
+
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = content
+        popover.show(relativeTo: statusLabel.bounds, of: statusLabel, preferredEdge: .maxY)
     }
 
     private func updateWordCount() {

@@ -49,7 +49,8 @@ math stays as raw TeX there), epub, or LaTeX. The epub and LaTeX exports run
 pandoc (`brew install pandoc`); the others are fully native. Cmd+B/I/E/K formatting, Shift+Cmd+X strikethrough,
 Cmd+1..6 headings, Cmd+0 paragraph. Cmd+/ source mode, Shift+Cmd+O outline
 sidebar (click a heading to jump), Shift+Cmd+F focus mode, Shift+Cmd+T
-typewriter mode. Word count sits in the status bar. Cmd+F opens the native
+typewriter mode. Word count sits in the status bar; click it for a popover
+with characters, lines, and reading time. Cmd+F opens the native
 find bar (Alt+Cmd+F for find and replace) with incremental search.
 
 Fenced code blocks highlight via tree-sitter (CodeEditLanguages grammars,
@@ -83,7 +84,8 @@ standard save and revert flows work.
 
 The sidebar (Shift+Cmd+O) has two panes: Outline lists the headings, Files
 browses the folder of the open document (markdown and text files plus
-subfolders; click a file to open it).
+subfolders; click a file to open it). The pane choice persists across
+launches.
 
 View > Theme switches themes. Built in: Default (follows the system
 appearance), GitHub, Night, and Newsprint (Georgia on sepia). A theme sets
