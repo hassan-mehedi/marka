@@ -251,3 +251,15 @@ import Testing
     #expect(!MarkdownParser.isTOCLine("[TOC] extra"))
     #expect(!MarkdownParser.isTOCLine("text [TOC]"))
 }
+
+@Test func footnoteDefinitionAndReferences() {
+    let definition = MarkdownParser.footnoteDefinitionMarker(in: "[^note]: The explanation.")
+    #expect(definition?.label == "note")
+    #expect((("[^note]: The explanation." as NSString)).substring(with: definition!.marker) == "[^note]: ")
+
+    let refs = MarkdownParser.footnoteReferences(in: "Claim[^1] and more[^note].")
+    #expect(refs.map(\.label) == ["1", "note"])
+
+    #expect(MarkdownParser.footnoteReferences(in: "[^1]: definition line").isEmpty)
+    #expect(MarkdownParser.footnoteReferences(in: "code `[^1]` span").isEmpty)
+}

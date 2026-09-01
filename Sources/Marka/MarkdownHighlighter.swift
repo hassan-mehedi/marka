@@ -201,7 +201,25 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
             if MarkdownParser.isTOCLine(trimmed) {
                 storage.addAttribute(.foregroundColor, value: theme.resolvedMarker, range: paragraph)
             }
+            if let definition = MarkdownParser.footnoteDefinitionMarker(in: trimmed) {
+                storage.addAttribute(.foregroundColor, value: theme.resolvedAccent, range: shifted(definition.marker, by: paragraph.location))
+                let rest = NSRange(
+                    location: paragraph.location + NSMaxRange(definition.marker),
+                    length: paragraph.length - NSMaxRange(definition.marker)
+                )
+                storage.addAttribute(.foregroundColor, value: theme.resolvedSecondary, range: rest)
+            }
             styleTableRowIfNeeded(trimmed, paragraph: paragraph, ns: ns, storage: storage)
+        }
+
+        for reference in MarkdownParser.footnoteReferences(in: trimmed) {
+            let range = shifted(reference.range, by: paragraph.location)
+            let size = theme.baseFontSize * 0.75
+            storage.addAttributes([
+                .foregroundColor: theme.resolvedAccent,
+                .font: NSFontManager.shared.convert(theme.baseFont, toSize: size),
+                .baselineOffset: theme.baseFontSize * 0.3,
+            ], range: range)
         }
 
         for span in MarkdownParser.inlineSpans(in: trimmed) {

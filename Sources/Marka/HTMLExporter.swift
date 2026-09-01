@@ -37,6 +37,19 @@ enum HTMLExporter {
         return head + "\n</head>\n<body>\n" + body + "</body>\n</html>\n"
     }
 
+    private final class FootnoteContext {
+        var numbers: [String: Int] = [:]
+        var order: [String] = []
+
+        func number(for label: String) -> Int {
+            if let number = numbers[label] { return number }
+            let number = numbers.count + 1
+            numbers[label] = number
+            order.append(label)
+            return number
+        }
+    }
+
     static func fragment(from markdown: String) -> String {
         let ns = markdown as NSString
         let fences = MarkdownParser.fences(in: markdown)
@@ -64,6 +77,9 @@ enum HTMLExporter {
 
         var html = ""
         var index = 0
+        let footnotes = FootnoteContext()
+        var definitions: [String: String] = [:]
+        var definitionOrder: [String] = []
 
         if let frontMatter = MarkdownParser.frontMatterRange(in: markdown) {
             while index < lines.count, NSLocationInRange(lineStarts[index], frontMatter) {
@@ -112,6 +128,15 @@ enum HTMLExporter {
                 continue
             }
 
+            if let definition = MarkdownParser.footnoteDefinitionMarker(in: line) {
+                if definitions[definition.label] == nil {
+                    definitionOrder.append(definition.label)
+                }
+                definitions[definition.label] = (line as NSString).substring(from: NSMaxRange(definition.marker))
+                index += 1
+                continue
+            }
+
             if MarkdownParser.isTOCLine(line) {
                 html += toc(outline, slugs: slugs)
                 index += 1
@@ -132,7 +157,7 @@ enum HTMLExporter {
             case let .heading(level, marker):
                 let content = (line as NSString).substring(from: NSMaxRange(marker))
                 let id = slugs[lineStarts[index]].map { " id=\"\($0)\"" } ?? ""
-                html += "<h\(level)\(id)>\(inline(content))</h\(level)>\n"
+                html += "<h\(level)\(id)>\(inline(content, footnotes: footnotes))</h\(level)>\n"
                 index += 1
                 continue
             case .blockquote:
@@ -141,10 +166,10 @@ enum HTMLExporter {
                     quoted.append((lines[index] as NSString).substring(from: NSMaxRange(marker)))
                     index += 1
                 }
-                html += "<blockquote><p>\(quoted.map(inline).joined(separator: "<br>\n"))</p></blockquote>\n"
+                html += "<blockquote><p>\(quoted.map { inline($0, footnotes: footnotes) }.joined(separator: "<br>\n"))</p></blockquote>\n"
                 continue
             case .listItem, .taskListItem:
-                html += list(&index, lines: lines)
+                html += list(&index, lines: lines, footnotes: footnotes)
                 continue
             case .tableSeparator:
                 index += 1
@@ -159,7 +184,7 @@ enum HTMLExporter {
             if !MarkdownParser.pipeRanges(in: line).isEmpty,
                index + 1 < lines.count,
                MarkdownParser.blockKind(of: lines[index + 1]) == .tableSeparator {
-                html += table(&index, lines: lines)
+                html += table(&index, lines: lines, footnotes: footnotes)
                 continue
             }
 
@@ -178,12 +203,22 @@ enum HTMLExporter {
                 index += 1
                 continue
             }
-            html += "<p>\(paragraph.map(inline).joined(separator: "\n"))</p>\n"
+            html += "<p>\(paragraph.map { inline($0, footnotes: footnotes) }.joined(separator: "\n"))</p>\n"
+        }
+        let labels = footnotes.order + definitionOrder.filter { footnotes.numbers[$0] == nil }
+        if !labels.isEmpty {
+            html += "<hr>\n<section class=\"footnotes\">\n<ol>\n"
+            for label in labels {
+                _ = footnotes.number(for: label)
+                let content = definitions[label].map { inline($0) } ?? ""
+                html += "<li id=\"fn-\(escape(label))\">\(content) <a href=\"#fnref-\(escape(label))\">&#8617;</a></li>\n"
+            }
+            html += "</ol>\n</section>\n"
         }
         return html
     }
 
-    private static func list(_ index: inout Int, lines: [String]) -> String {
+    private static func list(_ index: inout Int, lines: [String], footnotes: FootnoteContext? = nil) -> String {
         var items: [(text: String, checkbox: Bool, checked: Bool)] = []
         var ordered = false
         var first = true
@@ -207,15 +242,15 @@ enum HTMLExporter {
         for item in items {
             if item.checkbox {
                 let checked = item.checked ? " checked" : ""
-                html += "<li><input type=\"checkbox\" disabled\(checked)>\(inline(item.text))</li>\n"
+                html += "<li><input type=\"checkbox\" disabled\(checked)>\(inline(item.text, footnotes: footnotes))</li>\n"
             } else {
-                html += "<li>\(inline(item.text))</li>\n"
+                html += "<li>\(inline(item.text, footnotes: footnotes))</li>\n"
             }
         }
         return html + "</\(tag)>\n"
     }
 
-    private static func table(_ index: inout Int, lines: [String]) -> String {
+    private static func table(_ index: inout Int, lines: [String], footnotes: FootnoteContext? = nil) -> String {
         func cells(of line: String) -> [String] {
             let ns = line as NSString
             var pipes = MarkdownParser.pipeRanges(in: line).map(\.location)
@@ -232,14 +267,14 @@ enum HTMLExporter {
 
         var html = "<table>\n<thead>\n<tr>"
         for cell in cells(of: lines[index]) {
-            html += "<th>\(inline(cell))</th>"
+            html += "<th>\(inline(cell, footnotes: footnotes))</th>"
         }
         html += "</tr>\n</thead>\n<tbody>\n"
         index += 2
         while index < lines.count, !MarkdownParser.pipeRanges(in: lines[index]).isEmpty {
             html += "<tr>"
             for cell in cells(of: lines[index]) {
-                html += "<td>\(inline(cell))</td>"
+                html += "<td>\(inline(cell, footnotes: footnotes))</td>"
             }
             html += "</tr>\n"
             index += 1
@@ -288,32 +323,32 @@ enum HTMLExporter {
         return slug.isEmpty ? "section" : slug
     }
 
-    private static func inline(_ text: String) -> String {
+    private static func inline(_ text: String, footnotes: FootnoteContext? = nil) -> String {
         let ns = text as NSString
         let spans = MarkdownParser.inlineSpans(in: text)
         let mathSpans = MarkdownParser.inlineMathSpans(in: text)
             .filter { math in !spans.contains { NSIntersectionRange($0.range, math.range).length > 0 } }
+        let refs = footnotes == nil ? [] : MarkdownParser.footnoteReferences(in: text)
+            .filter { ref in !spans.contains { NSIntersectionRange($0.range, ref.range).length > 0 } }
 
         enum Piece {
             case span(InlineSpan)
             case math(MathSpan)
+            case footnote(NSRange, String)
 
-            var location: Int {
-                switch self {
-                case let .span(span): span.range.location
-                case let .math(math): math.range.location
-                }
-            }
+            var location: Int { range.location }
 
             var range: NSRange {
                 switch self {
                 case let .span(span): span.range
                 case let .math(math): math.range
+                case let .footnote(range, _): range
                 }
             }
         }
 
-        let pieces = (spans.map(Piece.span) + mathSpans.map(Piece.math)).sorted { $0.location < $1.location }
+        let pieces = (spans.map(Piece.span) + mathSpans.map(Piece.math) + refs.map { Piece.footnote($0.range, $0.label) })
+            .sorted { $0.location < $1.location }
         var html = ""
         var cursor = 0
         for piece in pieces {
@@ -333,6 +368,9 @@ enum HTMLExporter {
                 }
             case let .math(math):
                 html += "\\(\(escape(ns.substring(with: math.content)))\\)"
+            case let .footnote(_, label):
+                let number = footnotes?.number(for: label) ?? 0
+                html += "<sup id=\"fnref-\(escape(label))\"><a href=\"#fn-\(escape(label))\">[\(number)]</a></sup>"
             }
             cursor = NSMaxRange(piece.range)
         }

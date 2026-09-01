@@ -246,6 +246,36 @@ enum MarkdownParser {
         return ns.substring(with: m.range(at: 1))
     }
 
+    private static let footnoteDefinition = regex("^\\[\\^([^\\]\\s]+)\\]:[ \\t]*")
+    private static let footnoteReference = regex("\\[\\^([^\\]\\s]+)\\](?!:)")
+
+    static func footnoteDefinitionMarker(in line: String) -> (marker: NSRange, label: String)? {
+        let ns = line as NSString
+        guard let match = footnoteDefinition.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else {
+            return nil
+        }
+        return (match.range, ns.substring(with: match.range(at: 1)))
+    }
+
+    static func footnoteReferences(in line: String) -> [(range: NSRange, label: String)] {
+        let ns = line as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        guard footnoteDefinitionMarker(in: line) == nil else { return [] }
+
+        var protected: [NSRange] = []
+        codeSpan.enumerateMatches(in: line, range: full) { match, _, _ in
+            if let match { protected.append(match.range) }
+        }
+
+        var refs: [(NSRange, String)] = []
+        footnoteReference.enumerateMatches(in: line, range: full) { match, _, _ in
+            guard let match else { return }
+            guard !protected.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) else { return }
+            refs.append((match.range, ns.substring(with: match.range(at: 1))))
+        }
+        return refs
+    }
+
     static func isTOCLine(_ line: String) -> Bool {
         line.trimmingCharacters(in: .whitespaces).lowercased() == "[toc]"
     }

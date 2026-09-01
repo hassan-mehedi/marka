@@ -29,7 +29,8 @@ code, links, list markers, task lists, blockquotes, fenced code blocks,
 horizontal rules, and YAML front matter (styled as a dimmed metadata block,
 skipped by the outline and the HTML export). A `[TOC]` line renders as a
 clickable table of contents; the HTML export turns it into anchor links on
-the headings. Syntax markers reveal when the caret enters a span and hide
+the headings. Footnote references (`[^1]`) render as raised superscripts and
+definition lines dim; the HTML export numbers them and links both directions. Syntax markers reveal when the caret enters a span and hide
 when it leaves. Styling is incremental: only the edited paragraphs restyle on
 a keystroke, with a full pass when fence boundaries change.
 

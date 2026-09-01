@@ -109,3 +109,12 @@ import Testing
     #expect(html.contains("<a href=\"#first-part\">First Part</a>"))
     #expect(html.contains("<a href=\"#sub-section\">Sub Section</a>"))
 }
+
+@Test func htmlFootnotes() {
+    let html = HTMLExporter.fragment(from: "Claim[^a] and again[^b].\n\n[^a]: First note.\n[^b]: Second note.\n")
+    #expect(html.contains("<sup id=\"fnref-a\"><a href=\"#fn-a\">[1]</a></sup>"))
+    #expect(html.contains("<sup id=\"fnref-b\"><a href=\"#fn-b\">[2]</a></sup>"))
+    #expect(html.contains("<li id=\"fn-a\">First note. <a href=\"#fnref-a\">&#8617;</a></li>"))
+    #expect(!html.contains("<p>[^a]: First note.</p>"))
+    #expect(html.contains("<section class=\"footnotes\">"))
+}
