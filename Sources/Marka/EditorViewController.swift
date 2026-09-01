@@ -6,6 +6,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate {
     private var textView: NSTextView!
     private var highlighter: MarkdownHighlighter!
     private var statusLabel: NSTextField!
+    private var typewriterMode = false
     var onOutlineChange: (([OutlineItem]) -> Void)?
     private var fileURL: URL? {
         didSet { updateWindowTitle() }
@@ -70,12 +71,38 @@ final class EditorViewController: NSViewController, NSTextViewDelegate {
         view.window?.isDocumentEdited = true
         updateWordCount()
         updateOutline()
+        recenterCaret()
     }
 
     @objc func toggleSourceMode(_ sender: NSMenuItem) {
         highlighter.revealAllMarkers.toggle()
         highlighter.highlightAll()
         sender.state = highlighter.revealAllMarkers ? .on : .off
+    }
+
+    @objc func toggleFocusMode(_ sender: NSMenuItem) {
+        highlighter.focusMode.toggle()
+        highlighter.highlightAll()
+        sender.state = highlighter.focusMode ? .on : .off
+    }
+
+    @objc func toggleTypewriterMode(_ sender: NSMenuItem) {
+        typewriterMode.toggle()
+        sender.state = typewriterMode ? .on : .off
+        recenterCaret()
+    }
+
+    private func recenterCaret() {
+        guard typewriterMode, let window = view.window, let scrollView = textView.enclosingScrollView else { return }
+        let selection = textView.selectedRange()
+        let caret = NSRange(location: selection.location, length: 0)
+        let screenRect = textView.firstRect(forCharacterRange: caret, actualRange: nil)
+        guard screenRect != .zero else { return }
+        let inText = textView.convert(window.convertFromScreen(screenRect), from: nil)
+        let clip = scrollView.contentView
+        let targetY = max(0, inText.midY - clip.bounds.height / 2)
+        clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: targetY))
+        scrollView.reflectScrolledClipView(clip)
     }
 
     func jump(to location: Int) {
@@ -105,6 +132,46 @@ final class EditorViewController: NSViewController, NSTextViewDelegate {
 
     func textViewDidChangeSelection(_ notification: Notification) {
         highlighter.handleSelectionChange()
+        recenterCaret()
+    }
+
+    private static let autoPairs: [String: String] = [
+        "(": ")", "[": "]", "{": "}", "\"": "\"", "*": "*", "_": "_", "`": "`", "~": "~"
+    ]
+
+    func textView(_ view: NSTextView, shouldChangeTextIn affectedRange: NSRange, replacementString: String?) -> Bool {
+        guard let replacement = replacementString else { return true }
+        let selection = textView.selectedRange()
+
+        if selection.length > 0, NSEqualRanges(affectedRange, selection), let closing = Self.autoPairs[replacement] {
+            let selected = (textView.string as NSString).substring(with: selection)
+            replace(
+                selection,
+                with: replacement + selected + closing,
+                thenSelect: NSRange(location: selection.location + 1, length: selection.length)
+            )
+            return false
+        }
+
+        if selection.length == 0, replacement == "(" || replacement == "[" || replacement == "{" {
+            let closing = Self.autoPairs[replacement]!
+            replace(
+                NSRange(location: selection.location, length: 0),
+                with: replacement + closing,
+                thenSelect: NSRange(location: selection.location + 1, length: 0)
+            )
+            return false
+        }
+
+        if selection.length == 0, replacement == ")" || replacement == "]" || replacement == "}" {
+            let ns = textView.string as NSString
+            if selection.location < ns.length, ns.substring(with: NSRange(location: selection.location, length: 1)) == replacement {
+                textView.setSelectedRange(NSRange(location: selection.location + 1, length: 0))
+                return false
+            }
+        }
+
+        return true
     }
 
     func textView(_ view: NSTextView, doCommandBy commandSelector: Selector) -> Bool {

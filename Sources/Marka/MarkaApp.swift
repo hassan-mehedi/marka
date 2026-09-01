@@ -90,6 +90,10 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         viewMenu.addItem(withTitle: "Source Mode", action: #selector(EditorViewController.toggleSourceMode(_:)), keyEquivalent: "/")
         let outlineToggle = viewMenu.addItem(withTitle: "Toggle Outline", action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "o")
         outlineToggle.keyEquivalentModifierMask = [.command, .shift]
+        let focusToggle = viewMenu.addItem(withTitle: "Focus Mode", action: #selector(EditorViewController.toggleFocusMode(_:)), keyEquivalent: "f")
+        focusToggle.keyEquivalentModifierMask = [.command, .shift]
+        let typewriterToggle = viewMenu.addItem(withTitle: "Typewriter Mode", action: #selector(EditorViewController.toggleTypewriterMode(_:)), keyEquivalent: "t")
+        typewriterToggle.keyEquivalentModifierMask = [.command, .shift]
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)
 

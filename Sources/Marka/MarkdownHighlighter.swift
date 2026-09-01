@@ -9,6 +9,7 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
 
     private unowned let textView: NSTextView
     var revealAllMarkers = false
+    var focusMode = false
     private var fences = FenceInfo()
     private var pendingEditedRange: NSRange?
     private var previousSelection = NSRange(location: 0, length: 0)
@@ -97,6 +98,7 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
 
         if fences.isContent(paragraph) {
             storage.addAttributes([.font: Self.codeFont, .backgroundColor: Self.codeBackground], range: paragraph)
+            dimIfUnfocused(paragraph, storage: storage, selection: selection)
             return
         }
 
@@ -106,9 +108,11 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
         switch MarkdownParser.blockKind(of: trimmed) {
         case .fenceDelimiter:
             storage.addAttributes([.font: Self.codeFont, .foregroundColor: NSColor.tertiaryLabelColor], range: paragraph)
+            dimIfUnfocused(paragraph, storage: storage, selection: selection)
             return
         case .horizontalRule:
             storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: paragraph)
+            dimIfUnfocused(paragraph, storage: storage, selection: selection)
             return
         case let .heading(level, marker):
             let font = NSFont.boldSystemFont(ofSize: Self.headingSizes[min(max(level, 1), 6) - 1])
@@ -143,6 +147,16 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
 
         for span in MarkdownParser.inlineSpans(in: trimmed) {
             applyInline(span, offset: paragraph.location, storage: storage, selection: selection)
+        }
+
+        dimIfUnfocused(paragraph, storage: storage, selection: selection)
+    }
+
+    private func dimIfUnfocused(_ paragraph: NSRange, storage: NSTextStorage, selection: NSRange) {
+        guard focusMode, !selectionTouches(paragraph, selection: selection) else { return }
+        storage.enumerateAttribute(.foregroundColor, in: paragraph) { value, subrange, _ in
+            guard let color = value as? NSColor, color != .clear else { return }
+            storage.addAttribute(.foregroundColor, value: color.withAlphaComponent(0.35), range: subrange)
         }
     }
 
@@ -194,6 +208,10 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
 
     private func caretTouches(_ range: NSRange, selection: NSRange) -> Bool {
         if revealAllMarkers { return true }
+        return selectionTouches(range, selection: selection)
+    }
+
+    private func selectionTouches(_ range: NSRange, selection: NSRange) -> Bool {
         if selection.length == 0 {
             return selection.location >= range.location && selection.location <= NSMaxRange(range)
         }
