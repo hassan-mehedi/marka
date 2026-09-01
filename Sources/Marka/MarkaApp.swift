@@ -87,6 +87,8 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         exportMenu.addItem(withTitle: "PDF…", action: #selector(EditorViewController.exportPDF(_:)), keyEquivalent: "")
         exportMenu.addItem(withTitle: "HTML…", action: #selector(EditorViewController.exportHTML(_:)), keyEquivalent: "")
         exportMenu.addItem(withTitle: "Word (.docx)…", action: #selector(EditorViewController.exportDocx(_:)), keyEquivalent: "")
+        exportMenu.addItem(withTitle: "epub…", action: #selector(EditorViewController.exportEpub(_:)), keyEquivalent: "")
+        exportMenu.addItem(withTitle: "LaTeX…", action: #selector(EditorViewController.exportLaTeX(_:)), keyEquivalent: "")
         exportItem.submenu = exportMenu
         fileMenu.addItem(withTitle: "Print…", action: #selector(EditorViewController.printMarkdown(_:)), keyEquivalent: "p")
         fileMenu.addItem(.separator())

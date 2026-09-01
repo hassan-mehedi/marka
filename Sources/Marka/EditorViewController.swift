@@ -455,6 +455,30 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         }
     }
 
+    @objc func exportEpub(_ sender: Any?) {
+        exportWithPandoc(extension: "epub", type: UTType("org.idpf.epub-container") ?? .data, format: "epub")
+    }
+
+    @objc func exportLaTeX(_ sender: Any?) {
+        exportWithPandoc(extension: "tex", type: UTType(filenameExtension: "tex") ?? .plainText, format: "latex")
+    }
+
+    private func exportWithPandoc(extension ext: String, type: UTType, format: String) {
+        guard let url = runExportPanel(extension: ext, type: type) else { return }
+        let title = fileURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
+        do {
+            try PandocExporter.export(
+                markdown: textView.string,
+                to: url,
+                format: format,
+                title: title,
+                workingDirectory: fileURL?.deletingLastPathComponent()
+            )
+        } catch {
+            presentError(error)
+        }
+    }
+
     private func runExportPanel(extension ext: String, type: UTType) -> URL? {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [type]
