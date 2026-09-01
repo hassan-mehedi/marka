@@ -9,14 +9,14 @@ final class MathRenderer {
         let latex: String
         let fontSize: CGFloat
         let display: Bool
-        let dark: Bool
+        let color: String
     }
 
     private var cache: [Key: NSImage] = [:]
 
-    func image(latex: String, fontSize: CGFloat, display: Bool, appearance: NSAppearance?) -> NSImage? {
-        let dark = appearance?.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        let key = Key(latex: latex, fontSize: fontSize, display: display, dark: dark)
+    func image(latex: String, fontSize: CGFloat, display: Bool, color: NSColor) -> NSImage? {
+        let resolved = color.usingColorSpace(.sRGB) ?? color
+        let key = Key(latex: latex, fontSize: fontSize, display: display, color: resolved.description)
         if let cached = cache[key] {
             return cached
         }
@@ -24,7 +24,7 @@ final class MathRenderer {
         let renderer = MTMathImage(
             latex: latex,
             fontSize: fontSize,
-            textColor: dark ? .white : .black,
+            textColor: resolved,
             labelMode: display ? .display : .text
         )
         let (error, image) = renderer.asImage()

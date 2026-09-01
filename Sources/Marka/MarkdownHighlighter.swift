@@ -2,12 +2,8 @@ import AppKit
 
 @MainActor
 final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
-    static let baseFont = NSFont.systemFont(ofSize: 16)
-    private static let codeFont = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
-    private static let codeBackground = NSColor.systemGray.withAlphaComponent(0.15)
-    private static let headingSizes: [CGFloat] = [28, 24, 21, 19, 17, 16]
-
     private unowned let textView: NSTextView
+    private var theme: Theme { ThemeManager.shared.current }
     var revealAllMarkers = false
     var focusMode = false
     private(set) var fences = FenceInfo()
@@ -105,14 +101,14 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
     }
 
     private func styleParagraph(_ paragraph: NSRange, ns: NSString, storage: NSTextStorage, selection: NSRange) {
-        storage.setAttributes([.font: Self.baseFont, .foregroundColor: NSColor.textColor], range: paragraph)
+        storage.setAttributes([.font: theme.baseFont, .foregroundColor: theme.resolvedText], range: paragraph)
 
         if let block = fences.block(containing: paragraph) {
-            storage.addAttributes([.font: Self.codeFont, .backgroundColor: Self.codeBackground], range: paragraph)
+            storage.addAttributes([.font: theme.codeFont, .backgroundColor: theme.resolvedCodeBackground], range: paragraph)
             for token in tokens(for: block, ns: ns) {
                 let global = shifted(token.range, by: block.range.location)
                 let intersection = NSIntersectionRange(global, paragraph)
-                if intersection.length > 0, let color = Self.tokenColors[String(token.name.split(separator: ".").first ?? "")] {
+                if intersection.length > 0, let color = theme.tokenColor(String(token.name.split(separator: ".").first ?? "")) {
                     storage.addAttribute(.foregroundColor, value: color, range: intersection)
                 }
             }
@@ -125,16 +121,15 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
 
         switch MarkdownParser.blockKind(of: trimmed) {
         case .fenceDelimiter:
-            storage.addAttributes([.font: Self.codeFont, .foregroundColor: NSColor.tertiaryLabelColor], range: paragraph)
+            storage.addAttributes([.font: theme.codeFont, .foregroundColor: theme.resolvedMarker], range: paragraph)
             dimIfUnfocused(paragraph, storage: storage, selection: selection)
             return
         case .horizontalRule:
-            storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: paragraph)
+            storage.addAttribute(.foregroundColor, value: theme.resolvedMarker, range: paragraph)
             dimIfUnfocused(paragraph, storage: storage, selection: selection)
             return
         case let .heading(level, marker):
-            let font = NSFont.boldSystemFont(ofSize: Self.headingSizes[min(max(level, 1), 6) - 1])
-            storage.addAttribute(.font, value: font, range: paragraph)
+            storage.addAttribute(.font, value: theme.headingFont(level: level), range: paragraph)
             applyMarker(
                 storage,
                 range: shifted(marker, by: paragraph.location),
@@ -142,25 +137,25 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
             )
         case let .blockquote(marker):
             let markerRange = shifted(marker, by: paragraph.location)
-            storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: markerRange)
+            storage.addAttribute(.foregroundColor, value: theme.resolvedMarker, range: markerRange)
             let rest = NSRange(location: NSMaxRange(markerRange), length: NSMaxRange(paragraph) - NSMaxRange(markerRange))
-            storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: rest)
+            storage.addAttribute(.foregroundColor, value: theme.resolvedSecondary, range: rest)
         case let .listItem(marker):
-            storage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: shifted(marker, by: paragraph.location))
+            storage.addAttribute(.foregroundColor, value: theme.resolvedAccent, range: shifted(marker, by: paragraph.location))
         case let .taskListItem(marker, box, checked):
             let markerRange = shifted(marker, by: paragraph.location)
             let boxRange = shifted(box, by: paragraph.location)
-            storage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: markerRange)
-            storage.addAttributes([.font: Self.codeFont, .foregroundColor: NSColor.controlAccentColor], range: boxRange)
+            storage.addAttribute(.foregroundColor, value: theme.resolvedAccent, range: markerRange)
+            storage.addAttributes([.font: theme.codeFont, .foregroundColor: theme.resolvedAccent], range: boxRange)
             if checked {
                 let rest = NSRange(location: NSMaxRange(boxRange), length: NSMaxRange(paragraph) - NSMaxRange(boxRange))
                 storage.addAttributes(
-                    [.strikethroughStyle: NSUnderlineStyle.single.rawValue, .foregroundColor: NSColor.secondaryLabelColor],
+                    [.strikethroughStyle: NSUnderlineStyle.single.rawValue, .foregroundColor: theme.resolvedSecondary],
                     range: rest
                 )
             }
         case .tableSeparator:
-            storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: paragraph)
+            storage.addAttribute(.foregroundColor, value: theme.resolvedMarker, range: paragraph)
             dimIfUnfocused(paragraph, storage: storage, selection: selection)
             return
         case .paragraph:
@@ -178,14 +173,14 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
 
     private func styleMathDelimiters(in line: String, paragraph: NSRange, storage: NSTextStorage) {
         if MarkdownParser.displayMathContent(in: line) != nil {
-            storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: paragraph)
+            storage.addAttribute(.foregroundColor, value: theme.resolvedMarker, range: paragraph)
             return
         }
         for math in MarkdownParser.inlineMathSpans(in: line) {
             let open = NSRange(location: paragraph.location + math.range.location, length: 1)
             let close = NSRange(location: paragraph.location + NSMaxRange(math.range) - 1, length: 1)
-            storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: open)
-            storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: close)
+            storage.addAttribute(.foregroundColor, value: theme.resolvedMarker, range: open)
+            storage.addAttribute(.foregroundColor, value: theme.resolvedMarker, range: close)
         }
     }
 
@@ -201,7 +196,7 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
         guard nextIsSeparator || previousIsSeparator || previousIsRow else { return }
 
         for pipe in pipes {
-            storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: shifted(pipe, by: paragraph.location))
+            storage.addAttribute(.foregroundColor, value: theme.resolvedMarker, range: shifted(pipe, by: paragraph.location))
         }
         if nextIsSeparator {
             addTrait(.boldFontMask, range: paragraph, storage: storage)
@@ -222,23 +217,6 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
         if line.hasSuffix("\n") { line.removeLast() }
         return line
     }
-
-    private static let tokenColors: [String: NSColor] = [
-        "keyword": .systemPurple,
-        "string": .systemGreen,
-        "comment": .secondaryLabelColor,
-        "number": .systemBlue,
-        "function": .systemTeal,
-        "type": .systemIndigo,
-        "constant": .systemBlue,
-        "constructor": .systemIndigo,
-        "operator": .systemOrange,
-        "attribute": .systemBrown,
-        "boolean": .systemBlue,
-        "property": .systemTeal,
-        "label": .systemBrown,
-        "escape": .systemOrange,
-    ]
 
     private var codeTokenCache: [Int: (code: String, tokens: [CodeHighlighter.Token])] = [:]
 
@@ -268,7 +246,7 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
 
         switch span.kind {
         case .code:
-            storage.addAttributes([.font: Self.codeFont, .backgroundColor: Self.codeBackground], range: content)
+            storage.addAttributes([.font: theme.codeFont, .backgroundColor: theme.resolvedCodeBackground], range: content)
         case .bold:
             addTrait(.boldFontMask, range: content, storage: storage)
         case .italic:
@@ -279,7 +257,7 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
         case .strikethrough:
             storage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: content)
         case let .link(url):
-            storage.addAttribute(.foregroundColor, value: NSColor.linkColor, range: content)
+            storage.addAttribute(.foregroundColor, value: theme.resolvedLink, range: content)
             if !revealed, let parsed = URL(string: url) {
                 storage.addAttribute(.link, value: parsed, range: content)
             }
@@ -291,14 +269,14 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
 
     private func addTrait(_ trait: NSFontTraitMask, range: NSRange, storage: NSTextStorage) {
         storage.enumerateAttribute(.font, in: range) { value, subrange, _ in
-            let font = value as? NSFont ?? Self.baseFont
+            let font = value as? NSFont ?? theme.baseFont
             storage.addAttribute(.font, value: NSFontManager.shared.convert(font, toHaveTrait: trait), range: subrange)
         }
     }
 
     private func applyMarker(_ storage: NSTextStorage, range: NSRange, revealed: Bool) {
         if revealed {
-            storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: range)
+            storage.addAttribute(.foregroundColor, value: theme.resolvedMarker, range: range)
         } else {
             storage.addAttributes(
                 [.foregroundColor: NSColor.clear, .font: NSFont.systemFont(ofSize: 0.01)],

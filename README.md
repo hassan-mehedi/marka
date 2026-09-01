@@ -69,6 +69,26 @@ open build/Marka.app
 Documents use NSDocument, so multiple windows, tabs, Open Recent, and the
 standard save and revert flows work.
 
-Not built yet: docx/LaTeX/epub export, themes, multi-line `$$` blocks, a file
+View > Theme switches themes. Built in: Default (follows the system
+appearance), GitHub, Night, and Newsprint (Georgia on sepia). A theme sets
+fonts, editor colors, code token colors, and the window appearance, and the
+choice persists across launches. Drop a JSON file into
+`~/Library/Application Support/Marka/Themes/` (View > Theme > Open Themes
+Folder) to add your own:
+
+```json
+{
+  "name": "My Theme",
+  "appearance": "dark",
+  "font": "Avenir Next",
+  "fontSize": 17,
+  "background": "#1e2030",
+  "text": "#c8d3f5",
+  "accent": "#82aaff",
+  "tokens": { "keyword": "#c099ff", "string": "#c3e88d" }
+}
+```
+
+Not built yet: docx/LaTeX/epub export, multi-line `$$` blocks, a file
 tree sidebar, and true hidden-marker layout for text spans (markers currently
 shrink to a 0.01pt clear font).

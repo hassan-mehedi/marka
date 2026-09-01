@@ -110,6 +110,9 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         focusToggle.keyEquivalentModifierMask = [.command, .shift]
         let typewriterToggle = viewMenu.addItem(withTitle: "Typewriter Mode", action: #selector(EditorViewController.toggleTypewriterMode(_:)), keyEquivalent: "t")
         typewriterToggle.keyEquivalentModifierMask = [.command, .shift]
+        viewMenu.addItem(.separator())
+        let themeItem = viewMenu.addItem(withTitle: "Theme", action: nil, keyEquivalent: "")
+        themeItem.submenu = makeThemeMenu()
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)
 
@@ -136,5 +139,36 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         mainMenu.addItem(formatMenuItem)
 
         return mainMenu
+    }
+
+    private static func makeThemeMenu() -> NSMenu {
+        let menu = NSMenu(title: "Theme")
+        for theme in ThemeManager.shared.themes {
+            let item = menu.addItem(withTitle: theme.name, action: #selector(selectTheme(_:)), keyEquivalent: "")
+            item.representedObject = theme.name
+        }
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Open Themes Folder", action: #selector(openThemesFolder(_:)), keyEquivalent: "")
+        return menu
+    }
+
+    @objc private func selectTheme(_ sender: NSMenuItem) {
+        guard let name = sender.representedObject as? String else { return }
+        ThemeManager.shared.select(named: name)
+    }
+
+    @objc private func openThemesFolder(_ sender: NSMenuItem) {
+        let directory = ThemeManager.userThemesDirectory
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(directory)
+    }
+}
+
+extension MarkaApp: NSMenuItemValidation {
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(selectTheme(_:)), let name = menuItem.representedObject as? String {
+            menuItem.state = name == ThemeManager.shared.current.name ? .on : .off
+        }
+        return true
     }
 }

@@ -167,7 +167,7 @@ import Testing
 }
 
 @Test @MainActor func mathRendererProducesImage() {
-    let image = MathRenderer.shared.image(latex: "\\frac{a}{b}", fontSize: 17, display: true, appearance: nil)
+    let image = MathRenderer.shared.image(latex: "\\frac{a}{b}", fontSize: 17, display: true, color: .black)
     #expect(image != nil)
     #expect((image?.size.width ?? 0) > 0)
     #expect((image?.size.height ?? 0) > 0)

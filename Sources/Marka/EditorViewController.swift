@@ -38,7 +38,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         textView.usesFontPanel = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
-        textView.font = MarkdownHighlighter.baseFont
+        textView.font = ThemeManager.shared.current.baseFont
         textView.textContainerInset = NSSize(width: 28, height: 24)
         textView.autoresizingMask = [.width]
         textView.isVerticallyResizable = true
@@ -79,7 +79,45 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
 
         highlighter = MarkdownHighlighter(textView: textView)
         textView.string = pendingText
+        applyTheme()
         reloadDerivedState()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(themeDidChange),
+            name: ThemeManager.didChange,
+            object: nil
+        )
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        view.window?.appearance = ThemeManager.shared.current.appearance.flatMap(NSAppearance.init(named:))
+    }
+
+    @objc private func themeDidChange() {
+        applyTheme()
+        reloadDerivedState()
+        refreshDisplayParagraphs()
+    }
+
+    private var themeIsDark: Bool {
+        if let appearance = ThemeManager.shared.current.appearance {
+            return appearance == .darkAqua
+        }
+        return view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    }
+
+    private var mathColor: NSColor {
+        ThemeManager.shared.current.textColor ?? (themeIsDark ? .white : .black)
+    }
+
+    private func applyTheme() {
+        let theme = ThemeManager.shared.current
+        textView.font = theme.baseFont
+        textView.backgroundColor = theme.resolvedBackground
+        textView.insertionPointColor = theme.resolvedText
+        view.window?.appearance = theme.appearance.flatMap(NSAppearance.init(named:))
+        MathRenderer.shared.clearCache()
     }
 
     private func reloadDerivedState() {
@@ -443,9 +481,9 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
             if let latex = MarkdownParser.displayMathContent(in: line),
                let image = MathRenderer.shared.image(
                    latex: latex,
-                   fontSize: MarkdownHighlighter.baseFont.pointSize * 1.2,
+                   fontSize: ThemeManager.shared.current.baseFont.pointSize * 1.2,
                    display: true,
-                   appearance: view.effectiveAppearance
+                   color: mathColor
                ) {
                 return blockParagraph(with: image, centered: true, newline: hadNewline)
             }
@@ -461,7 +499,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         guard !selectionTouches(block.fullRange, selection) else { return nil }
 
         let source = (textView.string as NSString).substring(with: block.range)
-        let dark = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let dark = themeIsDark
         guard let image = MermaidRenderer.shared.image(for: source, dark: dark, onReady: { [weak self] in
             self?.refreshDisplayParagraphs()
         }) else {
@@ -508,9 +546,9 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
             guard !selectionTouches(global, selection) else { continue }
             guard let image = MathRenderer.shared.image(
                 latex: lineNS.substring(with: span.content),
-                fontSize: MarkdownHighlighter.baseFont.pointSize,
+                fontSize: ThemeManager.shared.current.baseFont.pointSize,
                 display: false,
-                appearance: view.effectiveAppearance
+                color: mathColor
             ) else { continue }
 
             let attachment = NSTextAttachment()
@@ -518,7 +556,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
             // Sit the formula on the text baseline instead of the line bottom.
             attachment.bounds = NSRect(
                 x: 0,
-                y: MarkdownHighlighter.baseFont.descender * 0.6,
+                y: ThemeManager.shared.current.baseFont.descender * 0.6,
                 width: image.size.width,
                 height: image.size.height
             )
