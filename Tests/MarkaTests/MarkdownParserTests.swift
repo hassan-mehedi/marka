@@ -192,3 +192,31 @@ import Testing
     #expect(fences.blocks.count == 1)
     #expect(fences.blocks[0].closeDelimiter == nil)
 }
+
+@Test func multiLineMathBlockDetection() {
+    let text = "before\n$$\nx = \\frac{a}{b}\n$$\nafter\n"
+    let blocks = MarkdownParser.mathBlocks(in: text, excluding: MarkdownParser.fences(in: text))
+    #expect(blocks.count == 1)
+    let content = (text as NSString).substring(with: blocks[0].range)
+    #expect(content == "x = \\frac{a}{b}\n")
+    #expect((text as NSString).substring(with: blocks[0].openDelimiter) == "$$")
+    #expect(blocks[0].closeDelimiter != nil)
+}
+
+@Test func mathBlockDelimitersInsideFencesIgnored() {
+    let text = "```\n$$\ncode\n$$\n```\n"
+    let blocks = MarkdownParser.mathBlocks(in: text, excluding: MarkdownParser.fences(in: text))
+    #expect(blocks.isEmpty)
+}
+
+@Test func singleLineDisplayMathIsNotABlockDelimiter() {
+    let text = "$$ x^2 $$\ntext\n"
+    let blocks = MarkdownParser.mathBlocks(in: text, excluding: MarkdownParser.fences(in: text))
+    #expect(blocks.isEmpty)
+}
+
+@Test func unterminatedMathBlockRunsToEnd() {
+    let blocks = MarkdownParser.mathBlocks(in: "$$\nx + y\n", excluding: FenceInfo())
+    #expect(blocks.count == 1)
+    #expect(blocks[0].closeDelimiter == nil)
+}

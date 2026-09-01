@@ -87,3 +87,9 @@ import Testing
     #expect(data.count > 500)
     #expect(data.prefix(2) == Data([0x50, 0x4b]))
 }
+
+@Test func htmlMultiLineMathBlock() {
+    let html = HTMLExporter.fragment(from: "$$\nx = \\frac{a}{b}\n$$\n\ntext\n")
+    #expect(html.contains("<p class=\"math\">\\[x = \\frac{a}{b}\\]</p>"))
+    #expect(html.contains("<p>text</p>"))
+}

@@ -53,6 +53,20 @@ struct FenceInfo: Equatable {
     }
 }
 
+struct MathBlock: Equatable {
+    var range: NSRange
+    var openDelimiter: NSRange
+    var closeDelimiter: NSRange?
+
+    var fullRange: NSRange {
+        var union = NSUnionRange(openDelimiter, range)
+        if let closeDelimiter {
+            union = NSUnionRange(union, closeDelimiter)
+        }
+        return union
+    }
+}
+
 enum MarkdownParser {
     private static let heading = regex("^(#{1,6})[ \\t]+")
     private static let blockquote = regex("^((?:>[ \\t]?)+)")
@@ -127,6 +141,37 @@ enum MarkdownParser {
         collect(strikeSpan) { _ in .strikethrough }
 
         return spans.sorted { $0.range.location < $1.range.location }
+    }
+
+    static func mathBlocks(in text: String, excluding fences: FenceInfo) -> [MathBlock] {
+        let ns = text as NSString
+        var blocks: [MathBlock] = []
+        var openContentStart: Int?
+        var openDelimiter = NSRange(location: 0, length: 0)
+
+        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: .byLines) { _, lineRange, enclosingRange, _ in
+            guard ns.substring(with: lineRange).trimmingCharacters(in: .whitespaces) == "$$" else { return }
+            guard !fences.blocks.contains(where: { NSLocationInRange(lineRange.location, $0.fullRange) }) else { return }
+            if let start = openContentStart {
+                blocks.append(MathBlock(
+                    range: NSRange(location: start, length: lineRange.location - start),
+                    openDelimiter: openDelimiter,
+                    closeDelimiter: lineRange
+                ))
+                openContentStart = nil
+            } else {
+                openContentStart = NSMaxRange(enclosingRange)
+                openDelimiter = lineRange
+            }
+        }
+        if let start = openContentStart, start < ns.length {
+            blocks.append(MathBlock(
+                range: NSRange(location: start, length: ns.length - start),
+                openDelimiter: openDelimiter,
+                closeDelimiter: nil
+            ))
+        }
+        return blocks
     }
 
     static func fences(in text: String) -> FenceInfo {

@@ -95,6 +95,5 @@ Folder) to add your own:
 }
 ```
 
-Not built yet: LaTeX/epub export (needs pandoc), multi-line `$$` blocks, and true
-hidden-marker layout for text spans (markers currently
+Not built yet: LaTeX/epub export (needs pandoc) and true hidden-marker layout for text spans (markers currently
 shrink to a 0.01pt clear font).

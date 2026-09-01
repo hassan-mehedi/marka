@@ -519,6 +519,10 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
             return mermaid
         }
 
+        if let math = mathBlockParagraph(for: range, selection: selection) {
+            return math
+        }
+
         if !selectionTouches(range, selection) {
             if let path = MarkdownParser.imageLinePath(in: line), let image = resolvedImage(at: path) {
                 return blockParagraph(with: image, centered: false, newline: hadNewline)
@@ -553,6 +557,28 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         }
 
         // The diagram takes the place of the opening fence line; the rest collapses.
+        guard NSLocationInRange(range.location, block.openDelimiter) else {
+            return Self.collapsedParagraph()
+        }
+        return blockParagraph(with: image, centered: true, newline: true)
+    }
+
+    private func mathBlockParagraph(for range: NSRange, selection: NSRange) -> NSTextParagraph? {
+        guard let block = highlighter.mathBlocks.first(where: { NSLocationInRange(range.location, $0.fullRange) }) else {
+            return nil
+        }
+        guard !selectionTouches(block.fullRange, selection) else { return nil }
+
+        let latex = (textView.string as NSString).substring(with: block.range)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !latex.isEmpty,
+              let image = MathRenderer.shared.image(
+                  latex: latex,
+                  fontSize: ThemeManager.shared.current.baseFont.pointSize * 1.2,
+                  display: true,
+                  color: mathColor
+              ) else { return nil }
+
         guard NSLocationInRange(range.location, block.openDelimiter) else {
             return Self.collapsedParagraph()
         }

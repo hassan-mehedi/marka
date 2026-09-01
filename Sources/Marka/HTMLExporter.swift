@@ -40,6 +40,7 @@ enum HTMLExporter {
     static func fragment(from markdown: String) -> String {
         let ns = markdown as NSString
         let fences = MarkdownParser.fences(in: markdown)
+        let mathBlocks = MarkdownParser.mathBlocks(in: markdown, excluding: fences)
         var lines: [String] = []
         var lineStarts: [Int] = []
         var location = 0
@@ -70,6 +71,15 @@ enum HTMLExporter {
                     let cls = block.language.isEmpty ? "" : " class=\"language-\(escape(block.language))\""
                     html += "<pre><code\(cls)>\(escape(code))</code></pre>\n"
                 }
+                while index < lines.count, NSLocationInRange(lineStarts[index], block.fullRange) {
+                    index += 1
+                }
+                continue
+            }
+
+            if let block = mathBlocks.first(where: { NSLocationInRange(lineStarts[index], $0.fullRange) }) {
+                let latex = ns.substring(with: block.range).trimmingCharacters(in: .whitespacesAndNewlines)
+                html += "<p class=\"math\">\\[\(escape(latex))\\]</p>\n"
                 while index < lines.count, NSLocationInRange(lineStarts[index], block.fullRange) {
                     index += 1
                 }

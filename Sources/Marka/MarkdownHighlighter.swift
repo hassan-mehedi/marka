@@ -7,6 +7,7 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
     var revealAllMarkers = false
     var focusMode = false
     private(set) var fences = FenceInfo()
+    private(set) var mathBlocks: [MathBlock] = []
     private var pendingEditedRange: NSRange?
     private var previousSelection = NSRange(location: 0, length: 0)
 
@@ -29,6 +30,7 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
     func highlightAll() {
         guard let storage = textView.textStorage else { return }
         fences = MarkdownParser.fences(in: storage.string)
+        mathBlocks = MarkdownParser.mathBlocks(in: storage.string, excluding: fences)
         codeTokenCache.removeAll()
         restyle(paragraphsIn: NSRange(location: 0, length: storage.length), storage: storage)
         pendingEditedRange = nil
@@ -38,8 +40,10 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
     func handleEdit() {
         guard let storage = textView.textStorage else { return }
         let newFences = MarkdownParser.fences(in: storage.string)
-        if newFences != fences {
+        let newMathBlocks = MarkdownParser.mathBlocks(in: storage.string, excluding: newFences)
+        if newFences != fences || newMathBlocks != mathBlocks {
             fences = newFences
+            mathBlocks = newMathBlocks
             codeTokenCache.removeAll()
             restyle(paragraphsIn: NSRange(location: 0, length: storage.length), storage: storage)
         } else if let edited = pendingEditedRange {
@@ -56,12 +60,29 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
         guard pendingEditedRange == nil else { return }
 
         let ns = storage.string as NSString
-        let old = ns.paragraphRange(for: clamp(previousSelection, to: ns.length))
-        let new = ns.paragraphRange(for: clamp(selection, to: ns.length))
+        // Restyle the whole block when the caret crosses a mermaid fence or a
+        // math block, so every collapsed paragraph in it rebuilds together.
+        let old = expandToBlock(ns.paragraphRange(for: clamp(previousSelection, to: ns.length)))
+        let new = expandToBlock(ns.paragraphRange(for: clamp(selection, to: ns.length)))
         restyle(paragraphsIn: old, storage: storage)
         if !NSEqualRanges(old, new) {
             restyle(paragraphsIn: new, storage: storage)
         }
+    }
+
+    private func expandToBlock(_ range: NSRange) -> NSRange {
+        var result = range
+        if let fence = fences.blocks.first(where: { touches($0.fullRange, range) }) {
+            result = NSUnionRange(result, fence.fullRange)
+        }
+        if let math = mathBlocks.first(where: { touches($0.fullRange, range) }) {
+            result = NSUnionRange(result, math.fullRange)
+        }
+        return result
+    }
+
+    private func touches(_ block: NSRange, _ range: NSRange) -> Bool {
+        NSIntersectionRange(block, range).length > 0 || NSLocationInRange(range.location, block)
     }
 
     func exportAttributedString() -> NSAttributedString {
@@ -102,6 +123,12 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
 
     private func styleParagraph(_ paragraph: NSRange, ns: NSString, storage: NSTextStorage, selection: NSRange) {
         storage.setAttributes([.font: theme.baseFont, .foregroundColor: theme.resolvedText], range: paragraph)
+
+        if mathBlocks.contains(where: { NSLocationInRange(paragraph.location, $0.fullRange) }) {
+            storage.addAttributes([.font: theme.codeFont, .foregroundColor: theme.resolvedMarker], range: paragraph)
+            dimIfUnfocused(paragraph, storage: storage, selection: selection)
+            return
+        }
 
         if let block = fences.block(containing: paragraph) {
             storage.addAttributes([.font: theme.codeFont, .backgroundColor: theme.resolvedCodeBackground], range: paragraph)
