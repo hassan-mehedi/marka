@@ -8,7 +8,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         return displayParagraph(for: range, in: storage)
     }
 
-    private var textView: MarkaTextView!
+    private(set) var textView: MarkaTextView!
     private var imageCache: [String: NSImage] = [:]
     private var highlighter: MarkdownHighlighter!
     private var statusLabel: NSTextField!
@@ -214,6 +214,16 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         guard let replacement = replacementString else { return true }
         let selection = textView.selectedRange()
 
+        if smartPunctuation, selection.length == 0, NSEqualRanges(affectedRange, selection),
+           let smart = smartReplacement(for: replacement, at: selection.location) {
+            replace(
+                smart.range,
+                with: smart.text,
+                thenSelect: NSRange(location: smart.range.location + (smart.text as NSString).length, length: 0)
+            )
+            return false
+        }
+
         if selection.length > 0, NSEqualRanges(affectedRange, selection), let closing = Self.autoPairs[replacement] {
             let selected = (textView.string as NSString).substring(with: selection)
             replace(
@@ -243,6 +253,67 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         }
 
         return true
+    }
+
+    private static let smartPunctuationKey = "MarkaSmartPunctuation"
+    private var smartPunctuation = UserDefaults.standard.bool(forKey: smartPunctuationKey)
+
+    @objc func toggleSmartPunctuation(_ sender: NSMenuItem) {
+        smartPunctuation.toggle()
+        UserDefaults.standard.set(smartPunctuation, forKey: Self.smartPunctuationKey)
+        sender.state = smartPunctuation ? .on : .off
+    }
+
+    private func smartReplacement(for typed: String, at location: Int) -> (range: NSRange, text: String)? {
+        guard typed == "\"" || typed == "'" || typed == "-" else { return nil }
+        guard !isLiteralContext(at: location) else { return nil }
+
+        let ns = textView.string as NSString
+        let lineRange = ns.paragraphRange(for: NSRange(location: location, length: 0))
+        let lineBeforeCaret = ns.substring(with: NSRange(location: lineRange.location, length: location - lineRange.location))
+        let previous: Character? = lineBeforeCaret.last
+
+        switch typed {
+        case "\"", "'":
+            let opens = previous == nil || previous!.isWhitespace || "([{".contains(previous!)
+            let text: String
+            if typed == "\"" {
+                text = opens ? "\u{201C}" : "\u{201D}"
+            } else {
+                text = opens ? "\u{2018}" : "\u{2019}"
+            }
+            return (NSRange(location: location, length: 0), text)
+        default:
+            guard previous == "-" else { return nil }
+            // Leave horizontal rules, front matter fences, and table separators alone.
+            let hyphensOnly = lineBeforeCaret.trimmingCharacters(in: .whitespaces).allSatisfy { $0 == "-" }
+            guard !hyphensOnly, !lineBeforeCaret.contains("|") else { return nil }
+            let beforePair = lineBeforeCaret.dropLast().last
+            guard beforePair == nil || beforePair!.isWhitespace || beforePair!.isLetter || beforePair!.isNumber else {
+                return nil
+            }
+            return (NSRange(location: location - 1, length: 1), "\u{2014}")
+        }
+    }
+
+    private func isLiteralContext(at location: Int) -> Bool {
+        if highlighter.fences.blocks.contains(where: { NSLocationInRange(location, $0.fullRange) }) { return true }
+        if highlighter.mathBlocks.contains(where: { NSLocationInRange(location, $0.fullRange) }) { return true }
+        if let frontMatter = highlighter.frontMatter, NSLocationInRange(location, frontMatter) { return true }
+
+        let ns = textView.string as NSString
+        let lineRange = ns.paragraphRange(for: NSRange(location: location, length: 0))
+        var line = ns.substring(with: lineRange)
+        if line.hasSuffix("\n") { line.removeLast() }
+        if case .fenceDelimiter = MarkdownParser.blockKind(of: line) { return true }
+        let column = location - lineRange.location
+        for span in MarkdownParser.inlineSpans(in: line) where span.kind == .code {
+            if column > span.range.location, column < NSMaxRange(span.range) { return true }
+        }
+        for math in MarkdownParser.inlineMathSpans(in: line) {
+            if column > math.range.location, column < NSMaxRange(math.range) { return true }
+        }
+        return false
     }
 
     func textView(_ view: NSTextView, doCommandBy commandSelector: Selector) -> Bool {

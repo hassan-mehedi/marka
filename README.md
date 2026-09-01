@@ -34,6 +34,10 @@ definition lines dim; the HTML export numbers them and links both directions. Sy
 when it leaves. Styling is incremental: only the edited paragraphs restyle on
 a keystroke, with a full pass when fence boundaries change.
 
+Format > Smart Punctuation (off by default, persisted) curls quotes and turns
+`--` into an em dash as you type, but leaves code spans, fences, math, front
+matter, horizontal rules, and table separators alone.
+
 Editing: Enter continues a list (ordered numbers increment, task boxes reset
 to unchecked), Enter on an empty item ends the list, Tab / Shift-Tab indents,
 and brackets, quotes and markdown markers auto-pair or wrap the selection.

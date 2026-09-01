@@ -162,6 +162,13 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         }
         let paragraphItem = formatMenu.addItem(withTitle: "Paragraph", action: #selector(EditorViewController.applyHeading(_:)), keyEquivalent: "0")
         paragraphItem.tag = 0
+        formatMenu.addItem(.separator())
+        let smartItem = formatMenu.addItem(
+            withTitle: "Smart Punctuation",
+            action: #selector(EditorViewController.toggleSmartPunctuation(_:)),
+            keyEquivalent: ""
+        )
+        smartItem.state = UserDefaults.standard.bool(forKey: "MarkaSmartPunctuation") ? .on : .off
         formatMenuItem.submenu = formatMenu
         mainMenu.addItem(formatMenuItem)
 
