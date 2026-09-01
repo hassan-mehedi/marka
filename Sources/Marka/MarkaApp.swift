@@ -23,7 +23,20 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
             defer: false
         )
         window.title = "Marka"
-        window.contentViewController = EditorViewController()
+
+        let editor = EditorViewController()
+        let outline = OutlineViewController()
+        outline.onSelect = { [weak editor] location in editor?.jump(to: location) }
+        editor.onOutlineChange = { [weak outline] items in outline?.update(items) }
+
+        let split = NSSplitViewController()
+        let sidebarItem = NSSplitViewItem(sidebarWithViewController: outline)
+        sidebarItem.minimumThickness = 160
+        sidebarItem.maximumThickness = 320
+        sidebarItem.canCollapse = true
+        split.addSplitViewItem(sidebarItem)
+        split.addSplitViewItem(NSSplitViewItem(viewController: editor))
+        window.contentViewController = split
         window.setFrameAutosaveName("MarkaMainWindow")
         window.center()
         window.makeKeyAndOrderFront(nil)
@@ -75,6 +88,8 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         let viewMenuItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
         viewMenu.addItem(withTitle: "Source Mode", action: #selector(EditorViewController.toggleSourceMode(_:)), keyEquivalent: "/")
+        let outlineToggle = viewMenu.addItem(withTitle: "Toggle Outline", action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "o")
+        outlineToggle.keyEquivalentModifierMask = [.command, .shift]
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)
 

@@ -6,6 +6,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate {
     private var textView: NSTextView!
     private var highlighter: MarkdownHighlighter!
     private var statusLabel: NSTextField!
+    var onOutlineChange: (([OutlineItem]) -> Void)?
     private var fileURL: URL? {
         didSet { updateWindowTitle() }
     }
@@ -56,6 +57,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate {
         textView.string = Self.sampleDocument
         highlighter.highlightAll()
         updateWordCount()
+        updateOutline()
     }
 
     override func viewDidAppear() {
@@ -67,12 +69,32 @@ final class EditorViewController: NSViewController, NSTextViewDelegate {
         highlighter.handleEdit()
         view.window?.isDocumentEdited = true
         updateWordCount()
+        updateOutline()
     }
 
     @objc func toggleSourceMode(_ sender: NSMenuItem) {
         highlighter.revealAllMarkers.toggle()
         highlighter.highlightAll()
         sender.state = highlighter.revealAllMarkers ? .on : .off
+    }
+
+    func jump(to location: Int) {
+        let length = (textView.string as NSString).length
+        let target = NSRange(location: min(location, length), length: 0)
+        textView.setSelectedRange(target)
+        textView.scrollRangeToVisible(target)
+        view.window?.makeFirstResponder(textView)
+    }
+
+    private func updateOutline() {
+        let ns = textView.string as NSString
+        var items: [OutlineItem] = []
+        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: .byLines) { line, lineRange, _, _ in
+            guard let line, case let .heading(level, marker) = MarkdownParser.blockKind(of: line) else { return }
+            let title = (line as NSString).substring(from: NSMaxRange(marker)).trimmingCharacters(in: .whitespaces)
+            items.append(OutlineItem(level: level, title: title, location: lineRange.location))
+        }
+        onOutlineChange?(items)
     }
 
     private func updateWordCount() {
@@ -232,6 +254,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate {
         fileURL = nil
         highlighter.highlightAll()
         updateWordCount()
+        updateOutline()
         view.window?.isDocumentEdited = false
     }
 
@@ -245,6 +268,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate {
             fileURL = url
             highlighter.highlightAll()
             updateWordCount()
+            updateOutline()
             view.window?.isDocumentEdited = false
         } catch {
             NSAlert(error: error).runModal()
