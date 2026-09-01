@@ -50,6 +50,25 @@ the picture inline; the raw markdown comes back when the caret enters it.
 Set MARKA_SNAPSHOT=/path/out.png to launch, write a window snapshot, and
 quit (used for automated visual checks).
 
-Not built yet: math, Mermaid, docx/LaTeX/epub export, themes, and true
-hidden-marker layout for text spans (markers currently shrink to a 0.01pt
-clear font).
+LaTeX math renders through SwiftMath, natively, with no web view: `$E = mc^2$`
+inline and `$$ ... $$` on its own line as a centered equation. A `$5` price or
+a `` `$x$` `` code span stays literal text.
+
+Mermaid diagrams render in a hidden WKWebView from a vendored copy of
+mermaid 11.15.0, so no network access is needed. A ```` ```mermaid ```` fence
+collapses to the rendered diagram; put the caret inside to edit the source.
+Rendered diagrams are cached per source and per light/dark appearance.
+
+The app bundle carries the icon and claims `.md` and `.txt` files:
+
+```sh
+scripts/make-app.sh          # build/Marka.app, release by default
+open build/Marka.app
+```
+
+Documents use NSDocument, so multiple windows, tabs, Open Recent, and the
+standard save and revert flows work.
+
+Not built yet: docx/LaTeX/epub export, themes, multi-line `$$` blocks, a file
+tree sidebar, and true hidden-marker layout for text spans (markers currently
+shrink to a 0.01pt clear font).

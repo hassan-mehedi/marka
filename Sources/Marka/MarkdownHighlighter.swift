@@ -10,7 +10,7 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
     private unowned let textView: NSTextView
     var revealAllMarkers = false
     var focusMode = false
-    private var fences = FenceInfo()
+    private(set) var fences = FenceInfo()
     private var pendingEditedRange: NSRange?
     private var previousSelection = NSRange(location: 0, length: 0)
 

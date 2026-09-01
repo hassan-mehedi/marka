@@ -14,6 +14,9 @@ let package = Package(
             dependencies: [
                 .product(name: "CodeEditLanguages", package: "CodeEditLanguages"),
                 .product(name: "SwiftMath", package: "SwiftMath"),
+            ],
+            resources: [
+                .copy("Resources/mermaid.min.js"),
             ]
         ),
         .testTarget(name: "MarkaTests", dependencies: ["Marka"])

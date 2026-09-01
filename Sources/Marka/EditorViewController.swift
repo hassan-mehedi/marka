@@ -432,6 +432,10 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         if hadNewline { line.removeLast() }
         let selection = textView.selectedRange()
 
+        if let mermaid = mermaidParagraph(for: range, selection: selection) {
+            return mermaid
+        }
+
         if !selectionTouches(range, selection) {
             if let path = MarkdownParser.imageLinePath(in: line), let image = resolvedImage(at: path) {
                 return blockParagraph(with: image, centered: false, newline: hadNewline)
@@ -448,6 +452,42 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         }
 
         return inlineMathParagraph(for: range, line: line, storage: storage, selection: selection)
+    }
+
+    private func mermaidParagraph(for range: NSRange, selection: NSRange) -> NSTextParagraph? {
+        guard let block = highlighter.fences.blocks.first(where: {
+            $0.language.lowercased() == "mermaid" && NSLocationInRange(range.location, $0.fullRange)
+        }) else { return nil }
+        guard !selectionTouches(block.fullRange, selection) else { return nil }
+
+        let source = (textView.string as NSString).substring(with: block.range)
+        let dark = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        guard let image = MermaidRenderer.shared.image(for: source, dark: dark, onReady: { [weak self] in
+            self?.refreshDisplayParagraphs()
+        }) else {
+            // Still rendering or failed: collapse the block so the code does not flash.
+            return Self.collapsedParagraph()
+        }
+
+        // The diagram takes the place of the opening fence line; the rest collapses.
+        guard NSLocationInRange(range.location, block.openDelimiter) else {
+            return Self.collapsedParagraph()
+        }
+        return blockParagraph(with: image, centered: true, newline: true)
+    }
+
+    private static func collapsedParagraph() -> NSTextParagraph {
+        NSTextParagraph(attributedString: NSAttributedString(
+            string: "\n",
+            attributes: [.font: NSFont.systemFont(ofSize: 0.01), .foregroundColor: NSColor.clear]
+        ))
+    }
+
+    private func refreshDisplayParagraphs() {
+        guard let storage = textView.textStorage, storage.length > 0 else { return }
+        textView.textContentStorage?.performEditingTransaction {
+            storage.edited(.editedAttributes, range: NSRange(location: 0, length: storage.length), changeInLength: 0)
+        }
     }
 
     private func inlineMathParagraph(

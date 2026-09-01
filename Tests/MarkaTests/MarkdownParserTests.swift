@@ -172,3 +172,23 @@ import Testing
     #expect((image?.size.width ?? 0) > 0)
     #expect((image?.size.height ?? 0) > 0)
 }
+
+@Test func fenceBlockKnowsItsDelimiters() {
+    let text = "intro\n```mermaid\ngraph TD\nA --> B\n```\nafter\n"
+    let fences = MarkdownParser.fences(in: text)
+    #expect(fences.blocks.count == 1)
+    let block = fences.blocks[0]
+    #expect(block.language == "mermaid")
+    #expect((text as NSString).substring(with: block.openDelimiter) == "```mermaid")
+    #expect((text as NSString).substring(with: block.closeDelimiter!) == "```")
+
+    let full = (text as NSString).substring(with: block.fullRange)
+    #expect(full.hasPrefix("```mermaid"))
+    #expect(full.hasSuffix("```"))
+}
+
+@Test func unterminatedFenceHasNoCloseDelimiter() {
+    let fences = MarkdownParser.fences(in: "```mermaid\ngraph TD\n")
+    #expect(fences.blocks.count == 1)
+    #expect(fences.blocks[0].closeDelimiter == nil)
+}

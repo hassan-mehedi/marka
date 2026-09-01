@@ -32,6 +32,16 @@ struct MathSpan: Equatable {
 struct FenceBlock: Equatable {
     var range: NSRange
     var language: String
+    var openDelimiter: NSRange
+    var closeDelimiter: NSRange?
+
+    var fullRange: NSRange {
+        var union = NSUnionRange(openDelimiter, range)
+        if let closeDelimiter {
+            union = NSUnionRange(union, closeDelimiter)
+        }
+        return union
+    }
 }
 
 struct FenceInfo: Equatable {
@@ -124,6 +134,7 @@ enum MarkdownParser {
         var info = FenceInfo()
         var openContentStart: Int?
         var openLanguage = ""
+        var openDelimiter = NSRange(location: 0, length: 0)
 
         ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: .byLines) { _, lineRange, enclosingRange, _ in
             let line = ns.substring(with: lineRange)
@@ -132,18 +143,23 @@ enum MarkdownParser {
             if let start = openContentStart {
                 info.blocks.append(FenceBlock(
                     range: NSRange(location: start, length: lineRange.location - start),
-                    language: openLanguage
+                    language: openLanguage,
+                    openDelimiter: openDelimiter,
+                    closeDelimiter: lineRange
                 ))
                 openContentStart = nil
             } else {
                 openContentStart = NSMaxRange(enclosingRange)
                 openLanguage = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                openDelimiter = lineRange
             }
         }
         if let start = openContentStart, start < ns.length {
             info.blocks.append(FenceBlock(
                 range: NSRange(location: start, length: ns.length - start),
-                language: openLanguage
+                language: openLanguage,
+                openDelimiter: openDelimiter,
+                closeDelimiter: nil
             ))
         }
         return info
