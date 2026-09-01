@@ -56,6 +56,12 @@ enum HTMLExporter {
         var html = ""
         var index = 0
 
+        if let frontMatter = MarkdownParser.frontMatterRange(in: markdown) {
+            while index < lines.count, NSLocationInRange(lineStarts[index], frontMatter) {
+                index += 1
+            }
+        }
+
         func fenceBlock(at start: Int) -> FenceBlock? {
             fences.blocks.first { NSLocationInRange(start, $0.fullRange) }
         }

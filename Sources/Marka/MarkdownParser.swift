@@ -246,11 +246,35 @@ enum MarkdownParser {
         return ns.substring(with: m.range(at: 1))
     }
 
+    static func frontMatterRange(in text: String) -> NSRange? {
+        let ns = text as NSString
+        var sawOpener = false
+        var result: NSRange?
+        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: .byLines) { line, lineRange, _, stop in
+            let trimmed = line?.trimmingCharacters(in: .whitespaces) ?? ""
+            if !sawOpener {
+                guard lineRange.location == 0, trimmed == "---" else {
+                    stop.pointee = true
+                    return
+                }
+                sawOpener = true
+                return
+            }
+            if trimmed == "---" || trimmed == "..." {
+                result = NSRange(location: 0, length: NSMaxRange(lineRange))
+                stop.pointee = true
+            }
+        }
+        return result
+    }
+
     static func outline(in text: String) -> [OutlineItem] {
         let ns = text as NSString
+        let excluded = fences(in: text).blocks.map(\.fullRange) + [frontMatterRange(in: text)].compactMap { $0 }
         var items: [OutlineItem] = []
         ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: .byLines) { line, lineRange, _, _ in
             guard let line, case let .heading(level, marker) = blockKind(of: line) else { return }
+            guard !excluded.contains(where: { NSLocationInRange(lineRange.location, $0) }) else { return }
             let title = (line as NSString).substring(from: NSMaxRange(marker)).trimmingCharacters(in: .whitespaces)
             items.append(OutlineItem(level: level, title: title, location: lineRange.location))
         }

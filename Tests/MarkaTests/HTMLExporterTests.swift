@@ -93,3 +93,9 @@ import Testing
     #expect(html.contains("<p class=\"math\">\\[x = \\frac{a}{b}\\]</p>"))
     #expect(html.contains("<p>text</p>"))
 }
+
+@Test func htmlSkipsFrontMatter() {
+    let html = HTMLExporter.fragment(from: "---\ntitle: Doc\n---\n# Heading\n")
+    #expect(!html.contains("title: Doc"))
+    #expect(html.contains("<h1>Heading</h1>"))
+}

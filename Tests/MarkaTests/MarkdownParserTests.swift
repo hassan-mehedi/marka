@@ -220,3 +220,27 @@ import Testing
     #expect(blocks.count == 1)
     #expect(blocks[0].closeDelimiter == nil)
 }
+
+@Test func frontMatterDetection() {
+    let text = "---\ntitle: Hello\ndate: 2026-09-01\n---\n# Real heading\n"
+    let range = MarkdownParser.frontMatterRange(in: text)
+    #expect(range != nil)
+    let block = (text as NSString).substring(with: range!)
+    #expect(block == "---\ntitle: Hello\ndate: 2026-09-01\n---")
+}
+
+@Test func frontMatterRequiresOpenerOnFirstLine() {
+    #expect(MarkdownParser.frontMatterRange(in: "text\n---\nkey: value\n---\n") == nil)
+    #expect(MarkdownParser.frontMatterRange(in: "---\nunclosed: yes\n") == nil)
+}
+
+@Test func frontMatterClosesWithDots() {
+    let text = "---\nkey: value\n...\nbody\n"
+    #expect(MarkdownParser.frontMatterRange(in: text) != nil)
+}
+
+@Test func outlineSkipsFrontMatterAndFences() {
+    let text = "---\n# not a heading\n---\n# Real\n```\n# code comment\n```\n## Second\n"
+    let items = MarkdownParser.outline(in: text)
+    #expect(items.map(\.title) == ["Real", "Second"])
+}
