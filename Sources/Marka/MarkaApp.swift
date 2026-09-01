@@ -69,6 +69,28 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         editMenuItem.submenu = editMenu
         mainMenu.addItem(editMenuItem)
 
+        let formatMenuItem = NSMenuItem()
+        let formatMenu = NSMenu(title: "Format")
+        formatMenu.addItem(withTitle: "Bold", action: #selector(EditorViewController.toggleBold(_:)), keyEquivalent: "b")
+        formatMenu.addItem(withTitle: "Italic", action: #selector(EditorViewController.toggleItalic(_:)), keyEquivalent: "i")
+        let strike = formatMenu.addItem(withTitle: "Strikethrough", action: #selector(EditorViewController.toggleStrikethrough(_:)), keyEquivalent: "x")
+        strike.keyEquivalentModifierMask = [.command, .shift]
+        formatMenu.addItem(withTitle: "Inline Code", action: #selector(EditorViewController.toggleInlineCode(_:)), keyEquivalent: "e")
+        formatMenu.addItem(withTitle: "Link", action: #selector(EditorViewController.insertLink(_:)), keyEquivalent: "k")
+        formatMenu.addItem(.separator())
+        for level in 1...6 {
+            let item = formatMenu.addItem(
+                withTitle: "Heading \(level)",
+                action: #selector(EditorViewController.applyHeading(_:)),
+                keyEquivalent: "\(level)"
+            )
+            item.tag = level
+        }
+        let paragraphItem = formatMenu.addItem(withTitle: "Paragraph", action: #selector(EditorViewController.applyHeading(_:)), keyEquivalent: "0")
+        paragraphItem.tag = 0
+        formatMenuItem.submenu = formatMenu
+        mainMenu.addItem(formatMenuItem)
+
         return mainMenu
     }
 }

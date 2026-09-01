@@ -109,6 +109,80 @@ final class EditorViewController: NSViewController, NSTextViewDelegate {
         return true
     }
 
+    @objc func toggleBold(_ sender: Any?) { toggleWrap("**") }
+    @objc func toggleItalic(_ sender: Any?) { toggleWrap("*") }
+    @objc func toggleStrikethrough(_ sender: Any?) { toggleWrap("~~") }
+    @objc func toggleInlineCode(_ sender: Any?) { toggleWrap("`") }
+
+    @objc func applyHeading(_ sender: NSMenuItem) {
+        guard let (range, line) = currentParagraph() else { return }
+        var markerLength = 0
+        if case let .heading(_, marker) = MarkdownParser.blockKind(of: line) {
+            markerLength = marker.length
+        }
+        let prefix = sender.tag > 0 ? String(repeating: "#", count: sender.tag) + " " : ""
+        replaceKeepingCaret(NSRange(location: range.location, length: markerLength), with: prefix)
+    }
+
+    @objc func insertLink(_ sender: Any?) {
+        let selection = effectiveSelection()
+        let text = (textView.string as NSString).substring(with: selection)
+        let replacement = "[\(text)](url)"
+        let urlStart = selection.location + 1 + (text as NSString).length + 2
+        replace(selection, with: replacement, thenSelect: NSRange(location: urlStart, length: 3))
+    }
+
+    private func toggleWrap(_ marker: String) {
+        let ns = textView.string as NSString
+        let markerLength = (marker as NSString).length
+        let selection = effectiveSelection()
+        let selected = ns.substring(with: selection)
+
+        if selected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let caret = textView.selectedRange()
+            replace(
+                NSRange(location: caret.location, length: 0),
+                with: marker + marker,
+                thenSelect: NSRange(location: caret.location + markerLength, length: 0)
+            )
+            return
+        }
+
+        if selected.hasPrefix(marker), selected.hasSuffix(marker), selection.length >= 2 * markerLength {
+            let inner = String(selected.dropFirst(marker.count).dropLast(marker.count))
+            replace(selection, with: inner, thenSelect: NSRange(location: selection.location, length: selection.length - 2 * markerLength))
+            return
+        }
+
+        let before = NSRange(location: selection.location - markerLength, length: markerLength)
+        let after = NSRange(location: NSMaxRange(selection), length: markerLength)
+        if before.location >= 0, NSMaxRange(after) <= ns.length,
+           ns.substring(with: before) == marker, ns.substring(with: after) == marker {
+            let whole = NSRange(location: before.location, length: 2 * markerLength + selection.length)
+            replace(whole, with: selected, thenSelect: NSRange(location: before.location, length: selection.length))
+            return
+        }
+
+        replace(
+            selection,
+            with: marker + selected + marker,
+            thenSelect: NSRange(location: selection.location + markerLength, length: selection.length)
+        )
+    }
+
+    private func effectiveSelection() -> NSRange {
+        let selection = textView.selectedRange()
+        guard selection.length == 0 else { return selection }
+        return textView.selectionRange(forProposedRange: selection, granularity: .selectByWord)
+    }
+
+    private func replace(_ range: NSRange, with string: String, thenSelect newSelection: NSRange) {
+        guard textView.shouldChangeText(in: range, replacementString: string) else { return }
+        textView.textStorage?.replaceCharacters(in: range, with: string)
+        textView.didChangeText()
+        textView.setSelectedRange(newSelection)
+    }
+
     private func replaceKeepingCaret(_ range: NSRange, with string: String) {
         guard textView.shouldChangeText(in: range, replacementString: string) else { return }
         let selection = textView.selectedRange()
