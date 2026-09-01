@@ -43,6 +43,21 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         self.window = window
 
         NSApp.activate(ignoringOtherApps: true)
+
+        if let snapshotPath = ProcessInfo.processInfo.environment["MARKA_SNAPSHOT"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                Self.writeSnapshot(of: window, to: snapshotPath)
+                NSApp.terminate(nil)
+            }
+        }
+    }
+
+    private static func writeSnapshot(of window: NSWindow, to path: String) {
+        guard let view = window.contentView,
+              let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+        else { return }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

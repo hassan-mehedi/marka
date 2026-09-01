@@ -2,18 +2,27 @@ import AppKit
 import UniformTypeIdentifiers
 
 @MainActor
-final class EditorViewController: NSViewController, NSTextViewDelegate {
-    private var textView: NSTextView!
+final class EditorViewController: NSViewController, NSTextViewDelegate, @MainActor NSTextContentStorageDelegate {
+    func textContentStorage(_ textContentStorage: NSTextContentStorage, textParagraphWith range: NSRange) -> NSTextParagraph? {
+        guard let storage = textContentStorage.textStorage else { return nil }
+        return displayParagraph(for: range, in: storage)
+    }
+
+    private var textView: MarkaTextView!
+    private var imageCache: [String: NSImage] = [:]
     private var highlighter: MarkdownHighlighter!
     private var statusLabel: NSTextField!
     private var typewriterMode = false
     var onOutlineChange: (([OutlineItem]) -> Void)?
     private var fileURL: URL? {
-        didSet { updateWindowTitle() }
+        didSet {
+            imageCache.removeAll()
+            updateWindowTitle()
+        }
     }
 
     override func loadView() {
-        let textView = NSTextView(usingTextLayoutManager: true)
+        let textView = MarkaTextView(usingTextLayoutManager: true)
         textView.allowsUndo = true
         textView.isRichText = false
         textView.usesFontPanel = false
@@ -28,6 +37,10 @@ final class EditorViewController: NSViewController, NSTextViewDelegate {
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
         textView.delegate = self
+        textView.textContentStorage?.delegate = self
+        textView.onPasteImage = { [weak self] data in
+            self?.insertPastedImage(data) ?? false
+        }
         self.textView = textView
 
         let scrollView = NSScrollView()
@@ -358,6 +371,55 @@ final class EditorViewController: NSViewController, NSTextViewDelegate {
         write(to: url)
     }
 
+    private func insertPastedImage(_ data: Data) -> Bool {
+        let directory: URL
+        let markdownPath: String
+        let stamp = Self.imageStamp.string(from: Date())
+        let name = "image-\(stamp).png"
+
+        if let fileURL {
+            directory = fileURL.deletingLastPathComponent().appendingPathComponent("assets")
+            markdownPath = "assets/\(name)"
+        } else {
+            directory = FileManager.default.temporaryDirectory.appendingPathComponent("MarkaImages")
+            markdownPath = directory.appendingPathComponent(name).path
+        }
+
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try data.write(to: directory.appendingPathComponent(name))
+        } catch {
+            NSAlert(error: error).runModal()
+            return false
+        }
+
+        textView.insertText("![](\(markdownPath))", replacementRange: textView.selectedRange())
+        return true
+    }
+
+    private static let imageStamp: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmss-SSS"
+        return formatter
+    }()
+
+    func resolvedImage(at path: String) -> NSImage? {
+        if let cached = imageCache[path] {
+            return cached
+        }
+        let url: URL
+        if path.hasPrefix("/") {
+            url = URL(fileURLWithPath: path)
+        } else if let fileURL {
+            url = fileURL.deletingLastPathComponent().appendingPathComponent(path)
+        } else {
+            return nil
+        }
+        guard let image = NSImage(contentsOf: url) else { return nil }
+        imageCache[path] = image
+        return image
+    }
+
     @objc func exportPDF(_ sender: Any?) {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.pdf]
@@ -435,6 +497,34 @@ final class EditorViewController: NSViewController, NSTextViewDelegate {
     private func updateWindowTitle() {
         view.window?.title = fileURL?.lastPathComponent ?? "Untitled"
         view.window?.representedURL = fileURL
+    }
+
+    fileprivate func displayParagraph(for range: NSRange, in storage: NSTextStorage) -> NSTextParagraph? {
+        let ns = storage.string as NSString
+        var line = ns.substring(with: range)
+        let hadNewline = line.hasSuffix("\n")
+        if hadNewline { line.removeLast() }
+
+        guard let path = MarkdownParser.imageLinePath(in: line) else { return nil }
+
+        let selection = textView.selectedRange()
+        let caretInside = selection.location >= range.location && selection.location <= NSMaxRange(range)
+        guard !caretInside, NSIntersectionRange(selection, range).length == 0 else { return nil }
+
+        guard let image = resolvedImage(at: path) else { return nil }
+
+        let insets = textView.textContainerInset.width * 2
+        let maxWidth = max(120, textView.bounds.width - insets - 24)
+        let scale = image.size.width > maxWidth ? maxWidth / image.size.width : 1
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        attachment.bounds = NSRect(x: 0, y: 0, width: image.size.width * scale, height: image.size.height * scale)
+
+        let display = NSMutableAttributedString(attachment: attachment)
+        if hadNewline {
+            display.append(NSAttributedString(string: "\n"))
+        }
+        return NSTextParagraph(attributedString: display)
     }
 
     private static let sampleDocument = """

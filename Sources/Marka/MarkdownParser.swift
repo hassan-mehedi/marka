@@ -144,6 +144,14 @@ enum MarkdownParser {
         return info
     }
 
+    private static let imageLine = regex("^[ \\t]*!\\[[^\\]\\n]*\\]\\(([^()\\s]+)\\)[ \\t]*$")
+
+    static func imageLinePath(in line: String) -> String? {
+        let ns = line as NSString
+        guard let m = imageLine.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else { return nil }
+        return ns.substring(with: m.range(at: 1))
+    }
+
     static func pipeRanges(in line: String) -> [NSRange] {
         let ns = line as NSString
         var pipes: [NSRange] = []

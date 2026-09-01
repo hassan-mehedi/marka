@@ -88,6 +88,13 @@ import Testing
     #expect(!MarkdownParser.isEmptyListItem("plain"))
 }
 
+@Test func imageLinePathExtraction() {
+    #expect(MarkdownParser.imageLinePath(in: "![alt text](assets/shot.png)") == "assets/shot.png")
+    #expect(MarkdownParser.imageLinePath(in: "  ![](/tmp/a.png)  ") == "/tmp/a.png")
+    #expect(MarkdownParser.imageLinePath(in: "text ![](a.png)") == nil)
+    #expect(MarkdownParser.imageLinePath(in: "[link](a.png)") == nil)
+}
+
 @Test func tableSeparatorDetection() {
     #expect(MarkdownParser.blockKind(of: "| --- | :---: |") == .tableSeparator)
     #expect(MarkdownParser.blockKind(of: "---|---") == .tableSeparator)
