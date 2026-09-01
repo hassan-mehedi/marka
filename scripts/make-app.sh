@@ -1,14 +1,18 @@
 #!/bin/bash
 # Builds Marka.app from the SwiftPM executable.
 # Usage: scripts/make-app.sh [debug|release]
+# MARKA_ARCH=arm64|x86_64 cross-builds; MARKA_VERSION stamps the bundle version.
 set -euo pipefail
 
 CONFIG="${1:-release}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-swift build -c "$CONFIG"
-BIN_DIR="$(swift build -c "$CONFIG" --show-bin-path)"
+BUILD_FLAGS=(-c "$CONFIG")
+[ -n "${MARKA_ARCH:-}" ] && BUILD_FLAGS+=(--arch "$MARKA_ARCH")
+
+swift build "${BUILD_FLAGS[@]}"
+BIN_DIR="$(swift build "${BUILD_FLAGS[@]}" --show-bin-path)"
 
 APP="$ROOT/build/Marka.app"
 rm -rf "$APP"
@@ -20,6 +24,9 @@ for bundle in "$BIN_DIR"/*.bundle; do
 done
 
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
+if [ -n "${MARKA_VERSION:-}" ]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $MARKA_VERSION" "$APP/Contents/Info.plist"
+fi
 
 ICONSET="$(mktemp -d)/Marka.iconset"
 mkdir -p "$ICONSET"

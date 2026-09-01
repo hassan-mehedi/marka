@@ -29,6 +29,21 @@ Swift, AppKit, TextKit 2. No Electron, no web view for the editor itself.
 - NSDocument under the hood, so tabs, Open Recent, autosave-style revert,
   and multiple windows work the way macOS users expect.
 
+## Install
+
+Download the dmg for your Mac from the
+[releases page](https://github.com/hassan-mehedi/marka/releases):
+`arm64` for Apple Silicon, `x86_64` for Intel. Drag Marka.app into
+Applications.
+
+The app is ad-hoc signed, not notarized, so the first launch is blocked
+with "Marka is damaged" or "unidentified developer". Clear the quarantine
+flag once and it opens normally:
+
+```sh
+xattr -d com.apple.quarantine /Applications/Marka.app
+```
+
 ## Requirements
 
 - macOS 14 or later
@@ -117,6 +132,13 @@ For code changes:
 
 The codebase is small on purpose (about 3,000 lines of app code). Prefer
 extending an existing type over adding a new abstraction.
+
+## Releases
+
+Pushing a tag like `v0.2.0` runs `.github/workflows/release.yml`: it tests,
+builds an arm64 and an x86_64 dmg with `scripts/make-dmg.sh`, and publishes
+both on a GitHub release. The tag becomes the bundle version. Build a dmg
+locally with `scripts/make-dmg.sh 0.2.0 arm64`.
 
 ## Themes
 
