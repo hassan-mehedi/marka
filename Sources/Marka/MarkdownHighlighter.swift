@@ -8,9 +8,7 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
     private static let headingSizes: [CGFloat] = [28, 24, 21, 19, 17, 16]
 
     private unowned let textView: NSTextView
-    var revealAllMarkers = false {
-        didSet { highlightAll() }
-    }
+    var revealAllMarkers = false
     private var fences = FenceInfo()
     private var pendingEditedRange: NSRange?
     private var previousSelection = NSRange(location: 0, length: 0)
@@ -67,10 +65,21 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
         }
     }
 
-    private func restyle(paragraphsIn range: NSRange, storage: NSTextStorage) {
+    func exportAttributedString() -> NSAttributedString {
+        guard let storage = textView.textStorage else { return NSAttributedString() }
+        let copy = NSTextStorage(string: storage.string)
+        let saved = revealAllMarkers
+        revealAllMarkers = false
+        let nowhere = NSRange(location: copy.length + 1, length: 0)
+        restyle(paragraphsIn: NSRange(location: 0, length: copy.length), storage: copy, selection: nowhere)
+        revealAllMarkers = saved
+        return copy
+    }
+
+    private func restyle(paragraphsIn range: NSRange, storage: NSTextStorage, selection: NSRange? = nil) {
         let ns = storage.string as NSString
         let target = ns.paragraphRange(for: clamp(range, to: ns.length))
-        let selection = textView.selectedRange()
+        let selection = selection ?? textView.selectedRange()
 
         storage.beginEditing()
         var location = target.location

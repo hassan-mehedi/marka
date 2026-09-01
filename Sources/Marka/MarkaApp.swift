@@ -53,6 +53,9 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         fileMenu.addItem(withTitle: "Save", action: #selector(EditorViewController.saveDocument(_:)), keyEquivalent: "s")
         fileMenu.addItem(withTitle: "Save As…", action: #selector(EditorViewController.saveDocumentAs(_:)), keyEquivalent: "S")
         fileMenu.addItem(.separator())
+        fileMenu.addItem(withTitle: "Export as PDF…", action: #selector(EditorViewController.exportPDF(_:)), keyEquivalent: "")
+        fileMenu.addItem(withTitle: "Print…", action: #selector(EditorViewController.printDocument(_:)), keyEquivalent: "p")
+        fileMenu.addItem(.separator())
         fileMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         fileMenuItem.submenu = fileMenu
         mainMenu.addItem(fileMenuItem)

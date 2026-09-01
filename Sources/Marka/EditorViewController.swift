@@ -71,6 +71,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate {
 
     @objc func toggleSourceMode(_ sender: NSMenuItem) {
         highlighter.revealAllMarkers.toggle()
+        highlighter.highlightAll()
         sender.state = highlighter.revealAllMarkers ? .on : .off
     }
 
@@ -264,6 +265,52 @@ final class EditorViewController: NSViewController, NSTextViewDelegate {
         panel.nameFieldStringValue = fileURL?.lastPathComponent ?? "Untitled.md"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         write(to: url)
+    }
+
+    @objc func exportPDF(_ sender: Any?) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        let baseName = fileURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
+        panel.nameFieldStringValue = baseName + ".pdf"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let printInfo = NSPrintInfo()
+        printInfo.jobDisposition = .save
+        printInfo.dictionary()[NSPrintInfo.AttributeKey.jobSavingURL] = url
+        configure(printInfo)
+        let operation = NSPrintOperation(view: makePrintView(for: printInfo), printInfo: printInfo)
+        operation.showsPrintPanel = false
+        operation.showsProgressPanel = false
+        operation.run()
+    }
+
+    @objc func printDocument(_ sender: Any?) {
+        let printInfo = NSPrintInfo()
+        configure(printInfo)
+        NSPrintOperation(view: makePrintView(for: printInfo), printInfo: printInfo).run()
+    }
+
+    private func configure(_ printInfo: NSPrintInfo) {
+        printInfo.horizontalPagination = .fit
+        printInfo.verticalPagination = .automatic
+        printInfo.isHorizontallyCentered = false
+        printInfo.isVerticallyCentered = false
+        printInfo.leftMargin = 56
+        printInfo.rightMargin = 56
+        printInfo.topMargin = 56
+        printInfo.bottomMargin = 56
+    }
+
+    private func makePrintView(for printInfo: NSPrintInfo) -> NSTextView {
+        let width = printInfo.paperSize.width - printInfo.leftMargin - printInfo.rightMargin
+        let printView = NSTextView(frame: NSRect(x: 0, y: 0, width: width, height: 1))
+        printView.appearance = NSAppearance(named: .aqua)
+        printView.isVerticallyResizable = true
+        printView.isHorizontallyResizable = false
+        printView.textContainer?.widthTracksTextView = true
+        printView.textStorage?.setAttributedString(highlighter.exportAttributedString())
+        printView.sizeToFit()
+        return printView
     }
 
     private func write(to url: URL) {
