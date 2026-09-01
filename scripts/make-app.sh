@@ -11,8 +11,8 @@ cd "$ROOT"
 BUILD_FLAGS=(-c "$CONFIG")
 [ -n "${MARKA_ARCH:-}" ] && BUILD_FLAGS+=(--arch "$MARKA_ARCH")
 
-swift build "${BUILD_FLAGS[@]}"
-BIN_DIR="$(swift build "${BUILD_FLAGS[@]}" --show-bin-path)"
+swift build --build-system swiftbuild "${BUILD_FLAGS[@]}"
+BIN_DIR="$(swift build --build-system swiftbuild "${BUILD_FLAGS[@]}" --show-bin-path)"
 
 APP="$ROOT/build/Marka.app"
 rm -rf "$APP"

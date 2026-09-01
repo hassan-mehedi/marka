@@ -26,9 +26,10 @@ final class CodeHighlighter {
             Bundle.main.executableURL?.deletingLastPathComponent(),
         ]
         for base in candidates {
-            guard let url = base?.appendingPathComponent("CodeEditLanguages_CodeEditLanguages.bundle/Resources") else { continue }
-            if FileManager.default.fileExists(atPath: url.path) {
-                return url
+            guard let bundle = base?.appendingPathComponent("CodeEditLanguages_CodeEditLanguages.bundle") else { continue }
+            for resources in [bundle.appendingPathComponent("Resources"), bundle.appendingPathComponent("Contents/Resources/Resources")]
+            where FileManager.default.fileExists(atPath: resources.path) {
+                return resources
             }
         }
         return nil
