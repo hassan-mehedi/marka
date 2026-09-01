@@ -35,6 +35,8 @@ final class OutlineViewController: NSViewController, NSTableViewDataSource, NSTa
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 220, height: 700))
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
+        scrollView.drawsBackground = false
+        tableView.backgroundColor = .clear
         view = scrollView
         tableView.reloadData()
     }

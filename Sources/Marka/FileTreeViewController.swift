@@ -44,6 +44,8 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 220, height: 700))
         scrollView.documentView = outlineView
         scrollView.hasVerticalScroller = true
+        scrollView.drawsBackground = false
+        outlineView.backgroundColor = .clear
 
         let placeholder = NSTextField(wrappingLabelWithString: "Save the document to browse its folder.")
         placeholder.font = .systemFont(ofSize: 12)

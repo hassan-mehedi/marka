@@ -23,7 +23,8 @@ final class SidebarViewController: NSViewController {
         container.translatesAutoresizingMaskIntoConstraints = false
         self.container = container
 
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 700))
+        let view = OpaqueBackgroundView(frame: NSRect(x: 0, y: 0, width: 220, height: 700))
+        view.color = ThemeManager.shared.current.resolvedBackground
         view.addSubview(picker)
         view.addSubview(container)
         NSLayoutConstraint.activate([
@@ -36,6 +37,12 @@ final class SidebarViewController: NSViewController {
             container.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
         self.view = view
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(themeDidChange),
+            name: ThemeManager.didChange,
+            object: nil
+        )
 
         addChild(outline)
         addChild(fileTree)
@@ -50,6 +57,10 @@ final class SidebarViewController: NSViewController {
     }
 
     private static let paneKey = "MarkaSidebarPane"
+
+    @objc private func themeDidChange() {
+        (view as? OpaqueBackgroundView)?.color = ThemeManager.shared.current.resolvedBackground
+    }
 
     @objc private func paneChanged() {
         if picker.selectedSegment == 0 {

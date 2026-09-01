@@ -67,7 +67,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         statusLabel.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(statusLabelClicked)))
         self.statusLabel = statusLabel
 
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
+        let container = OpaqueBackgroundView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
         container.addSubview(scrollView)
         container.addSubview(statusLabel)
         NSLayoutConstraint.activate([
@@ -118,6 +118,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         let theme = ThemeManager.shared.current
         textView.font = theme.baseFont
         textView.backgroundColor = theme.resolvedBackground
+        (view as? OpaqueBackgroundView)?.color = theme.resolvedBackground
         textView.insertionPointColor = theme.resolvedText
         view.window?.appearance = theme.appearance.flatMap(NSAppearance.init(named:))
         MathRenderer.shared.clearCache()
