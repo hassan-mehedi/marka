@@ -103,6 +103,26 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenu.addItem(.separator())
+        let findItem = editMenu.addItem(withTitle: "Find", action: nil, keyEquivalent: "")
+        let findMenu = NSMenu(title: "Find")
+        let findActions: [(String, String, NSEvent.ModifierFlags, NSTextFinder.Action)] = [
+            ("Find…", "f", [.command], .showFindInterface),
+            ("Find and Replace…", "f", [.command, .option], .showReplaceInterface),
+            ("Find Next", "g", [.command], .nextMatch),
+            ("Find Previous", "g", [.command, .shift], .previousMatch),
+            ("Use Selection for Find", "e", [.command], .setSearchString),
+        ]
+        for (title, key, modifiers, action) in findActions {
+            let item = findMenu.addItem(
+                withTitle: title,
+                action: #selector(NSTextView.performTextFinderAction(_:)),
+                keyEquivalent: key
+            )
+            item.keyEquivalentModifierMask = modifiers
+            item.tag = action.rawValue
+        }
+        findItem.submenu = findMenu
         editMenuItem.submenu = editMenu
         mainMenu.addItem(editMenuItem)
 

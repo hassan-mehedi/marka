@@ -40,7 +40,8 @@ only when the document uses them), or Word .docx (converted from the HTML, so
 math stays as raw TeX there). Cmd+B/I/E/K formatting, Shift+Cmd+X strikethrough,
 Cmd+1..6 headings, Cmd+0 paragraph. Cmd+/ source mode, Shift+Cmd+O outline
 sidebar (click a heading to jump), Shift+Cmd+F focus mode, Shift+Cmd+T
-typewriter mode. Word count sits in the status bar.
+typewriter mode. Word count sits in the status bar. Cmd+F opens the native
+find bar (Alt+Cmd+F for find and replace) with incremental search.
 
 Fenced code blocks highlight via tree-sitter (CodeEditLanguages grammars,
 language tag on the fence picks the grammar). Table rows style in place:

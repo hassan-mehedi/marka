@@ -38,6 +38,8 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         textView.usesFontPanel = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
+        textView.usesFindBar = true
+        textView.isIncrementalSearchingEnabled = true
         textView.font = ThemeManager.shared.current.baseFont
         textView.textContainerInset = NSSize(width: 28, height: 24)
         textView.autoresizingMask = [.width]
