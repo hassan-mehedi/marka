@@ -8,6 +8,9 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
     private static let headingSizes: [CGFloat] = [28, 24, 21, 19, 17, 16]
 
     private unowned let textView: NSTextView
+    var revealAllMarkers = false {
+        didSet { highlightAll() }
+    }
     private var fences = FenceInfo()
     private var pendingEditedRange: NSRange?
     private var previousSelection = NSRange(location: 0, length: 0)
@@ -181,6 +184,7 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
     }
 
     private func caretTouches(_ range: NSRange, selection: NSRange) -> Bool {
+        if revealAllMarkers { return true }
         if selection.length == 0 {
             return selection.location >= range.location && selection.location <= NSMaxRange(range)
         }

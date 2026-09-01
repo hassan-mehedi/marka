@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 final class EditorViewController: NSViewController, NSTextViewDelegate {
     private var textView: NSTextView!
     private var highlighter: MarkdownHighlighter!
+    private var statusLabel: NSTextField!
     private var fileURL: URL? {
         didSet { updateWindowTitle() }
     }
@@ -27,14 +28,34 @@ final class EditorViewController: NSViewController, NSTextViewDelegate {
         textView.delegate = self
         self.textView = textView
 
-        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
+        let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.documentView = textView
-        view = scrollView
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+
+        let statusLabel = NSTextField(labelWithString: "")
+        statusLabel.font = .systemFont(ofSize: 11)
+        statusLabel.textColor = .secondaryLabelColor
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        self.statusLabel = statusLabel
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
+        container.addSubview(scrollView)
+        container.addSubview(statusLabel)
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: container.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -24),
+            statusLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            statusLabel.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 4)
+        ])
+        view = container
 
         highlighter = MarkdownHighlighter(textView: textView)
         textView.string = Self.sampleDocument
         highlighter.highlightAll()
+        updateWordCount()
     }
 
     override func viewDidAppear() {
@@ -45,6 +66,18 @@ final class EditorViewController: NSViewController, NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
         highlighter.handleEdit()
         view.window?.isDocumentEdited = true
+        updateWordCount()
+    }
+
+    @objc func toggleSourceMode(_ sender: NSMenuItem) {
+        highlighter.revealAllMarkers.toggle()
+        sender.state = highlighter.revealAllMarkers ? .on : .off
+    }
+
+    private func updateWordCount() {
+        let text = textView.string
+        let words = text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
+        statusLabel.stringValue = "\(words) words · \(text.count) characters"
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
@@ -197,6 +230,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate {
         textView.string = ""
         fileURL = nil
         highlighter.highlightAll()
+        updateWordCount()
         view.window?.isDocumentEdited = false
     }
 
@@ -209,6 +243,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate {
             textView.string = try String(contentsOf: url, encoding: .utf8)
             fileURL = url
             highlighter.highlightAll()
+            updateWordCount()
             view.window?.isDocumentEdited = false
         } catch {
             NSAlert(error: error).runModal()
