@@ -113,6 +113,18 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
             storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: rest)
         case let .listItem(marker):
             storage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: shifted(marker, by: paragraph.location))
+        case let .taskListItem(marker, box, checked):
+            let markerRange = shifted(marker, by: paragraph.location)
+            let boxRange = shifted(box, by: paragraph.location)
+            storage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: markerRange)
+            storage.addAttributes([.font: Self.codeFont, .foregroundColor: NSColor.controlAccentColor], range: boxRange)
+            if checked {
+                let rest = NSRange(location: NSMaxRange(boxRange), length: NSMaxRange(paragraph) - NSMaxRange(boxRange))
+                storage.addAttributes(
+                    [.strikethroughStyle: NSUnderlineStyle.single.rawValue, .foregroundColor: NSColor.secondaryLabelColor],
+                    range: rest
+                )
+            }
         case .paragraph:
             break
         }

@@ -17,6 +17,7 @@ enum BlockKind: Equatable {
     case heading(level: Int, marker: NSRange)
     case blockquote(marker: NSRange)
     case listItem(marker: NSRange)
+    case taskListItem(marker: NSRange, box: NSRange, checked: Bool)
     case horizontalRule
     case fenceDelimiter
     case paragraph
@@ -35,6 +36,8 @@ enum MarkdownParser {
     private static let heading = regex("^(#{1,6})[ \\t]+")
     private static let blockquote = regex("^((?:>[ \\t]?)+)")
     private static let listItem = regex("^[ \\t]{0,8}(?:[-*+]|\\d{1,9}[.)])[ \\t]+")
+    private static let taskItem = regex("^([ \\t]{0,8}[-*+][ \\t]+)(\\[[ xX]\\])(?=[ \\t]|$)")
+    private static let orderedMarker = regex("^([ \\t]*)(\\d{1,9})([.)][ \\t]+)$")
     private static let horizontalRule = regex("^[ \\t]*(?:-{3,}|_{3,}|\\*{3,})[ \\t]*$")
 
     private static let codeSpan = regex("(`+)([^`\\n]+?)(\\1)")
@@ -58,6 +61,11 @@ enum MarkdownParser {
         }
         if let m = blockquote.firstMatch(in: line, range: full) {
             return .blockquote(marker: m.range(at: 1))
+        }
+        if let m = taskItem.firstMatch(in: line, range: full) {
+            let box = m.range(at: 2)
+            let checked = ns.substring(with: box).lowercased().contains("x")
+            return .taskListItem(marker: m.range(at: 1), box: box, checked: checked)
         }
         if let m = listItem.firstMatch(in: line, range: full) {
             return .listItem(marker: m.range)
@@ -116,6 +124,38 @@ enum MarkdownParser {
             info.contentRanges.append(NSRange(location: start, length: ns.length - start))
         }
         return info
+    }
+
+    static func continuationMarker(afterLine line: String) -> String? {
+        let ns = line as NSString
+        switch blockKind(of: line) {
+        case let .taskListItem(marker, _, _):
+            return ns.substring(with: marker) + "[ ] "
+        case let .listItem(marker):
+            let text = ns.substring(with: marker)
+            let markerNS = text as NSString
+            guard let m = orderedMarker.firstMatch(in: text, range: NSRange(location: 0, length: markerNS.length)),
+                  let number = Int(markerNS.substring(with: m.range(at: 2)))
+            else { return text }
+            return markerNS.substring(with: m.range(at: 1)) + String(number + 1) + markerNS.substring(with: m.range(at: 3))
+        default:
+            return nil
+        }
+    }
+
+    static func isEmptyListItem(_ line: String) -> Bool {
+        let ns = line as NSString
+        let contentStart: Int
+        switch blockKind(of: line) {
+        case let .taskListItem(_, box, _):
+            contentStart = NSMaxRange(box)
+        case let .listItem(marker):
+            contentStart = NSMaxRange(marker)
+        default:
+            return false
+        }
+        let rest = ns.substring(from: contentStart)
+        return rest.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     private static func regex(_ pattern: String) -> NSRegularExpression {

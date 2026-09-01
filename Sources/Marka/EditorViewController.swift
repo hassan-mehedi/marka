@@ -51,6 +51,73 @@ final class EditorViewController: NSViewController, NSTextViewDelegate {
         highlighter.handleSelectionChange()
     }
 
+    func textView(_ view: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        switch commandSelector {
+        case #selector(NSResponder.insertNewline(_:)):
+            return continueListOnNewline()
+        case #selector(NSResponder.insertTab(_:)):
+            return shiftListIndent(outward: false)
+        case #selector(NSResponder.insertBacktab(_:)):
+            return shiftListIndent(outward: true)
+        default:
+            return false
+        }
+    }
+
+    private func currentParagraph() -> (range: NSRange, line: String)? {
+        let ns = textView.string as NSString
+        let selection = textView.selectedRange()
+        guard selection.location != NSNotFound else { return nil }
+        let range = ns.paragraphRange(for: selection)
+        var line = ns.substring(with: range)
+        if line.hasSuffix("\n") { line.removeLast() }
+        return (range, line)
+    }
+
+    private func continueListOnNewline() -> Bool {
+        guard let (range, line) = currentParagraph(),
+              let marker = MarkdownParser.continuationMarker(afterLine: line)
+        else { return false }
+
+        if MarkdownParser.isEmptyListItem(line) {
+            replaceKeepingCaret(NSRange(location: range.location, length: (line as NSString).length), with: "")
+            return true
+        }
+        textView.insertText("\n" + marker, replacementRange: textView.selectedRange())
+        return true
+    }
+
+    private func shiftListIndent(outward: Bool) -> Bool {
+        guard let (range, line) = currentParagraph() else { return false }
+        switch MarkdownParser.blockKind(of: line) {
+        case .listItem, .taskListItem:
+            break
+        default:
+            return false
+        }
+
+        if outward {
+            let ns = line as NSString
+            var remove = 0
+            while remove < 2, remove < ns.length, ns.character(at: remove) == 0x20 { remove += 1 }
+            if remove > 0 {
+                replaceKeepingCaret(NSRange(location: range.location, length: remove), with: "")
+            }
+        } else {
+            replaceKeepingCaret(NSRange(location: range.location, length: 0), with: "  ")
+        }
+        return true
+    }
+
+    private func replaceKeepingCaret(_ range: NSRange, with string: String) {
+        guard textView.shouldChangeText(in: range, replacementString: string) else { return }
+        let selection = textView.selectedRange()
+        textView.textStorage?.replaceCharacters(in: range, with: string)
+        textView.didChangeText()
+        let delta = (string as NSString).length - range.length
+        textView.setSelectedRange(NSRange(location: max(selection.location + delta, 0), length: selection.length))
+    }
+
     @objc func newDocument(_ sender: Any?) {
         guard confirmDiscardIfNeeded() else { return }
         textView.string = ""
@@ -141,6 +208,9 @@ final class EditorViewController: NSViewController, NSTextViewDelegate {
 
     1. ordered item
     2. second item
+
+    - [ ] open task
+    - [x] finished task
 
     > A blockquote line.
 

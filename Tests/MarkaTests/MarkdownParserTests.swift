@@ -53,6 +53,41 @@ import Testing
     #expect(spans[0].kind == .link(url: "https://example.com"))
 }
 
+@Test func taskListItemDetection() {
+    guard case let .taskListItem(marker, box, checked) = MarkdownParser.blockKind(of: "- [x] done") else {
+        Issue.record("expected task list item")
+        return
+    }
+    #expect(marker == NSRange(location: 0, length: 2))
+    #expect(box == NSRange(location: 2, length: 3))
+    #expect(checked)
+}
+
+@Test func uncheckedTaskItem() {
+    guard case let .taskListItem(_, _, checked) = MarkdownParser.blockKind(of: "- [ ] todo") else {
+        Issue.record("expected task list item")
+        return
+    }
+    #expect(!checked)
+}
+
+@Test func continuationMarkers() {
+    #expect(MarkdownParser.continuationMarker(afterLine: "- item") == "- ")
+    #expect(MarkdownParser.continuationMarker(afterLine: "  * item") == "  * ")
+    #expect(MarkdownParser.continuationMarker(afterLine: "12. item") == "13. ")
+    #expect(MarkdownParser.continuationMarker(afterLine: "3) item") == "4) ")
+    #expect(MarkdownParser.continuationMarker(afterLine: "- [x] done") == "- [ ] ")
+    #expect(MarkdownParser.continuationMarker(afterLine: "plain text") == nil)
+}
+
+@Test func emptyListItemDetection() {
+    #expect(MarkdownParser.isEmptyListItem("- "))
+    #expect(MarkdownParser.isEmptyListItem("- [ ] "))
+    #expect(MarkdownParser.isEmptyListItem("2. "))
+    #expect(!MarkdownParser.isEmptyListItem("- item"))
+    #expect(!MarkdownParser.isEmptyListItem("plain"))
+}
+
 @Test func fenceRegions() {
     let text = "before\n```\ncode line\n```\nafter"
     let fences = MarkdownParser.fences(in: text)
