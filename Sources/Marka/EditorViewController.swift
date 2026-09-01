@@ -14,12 +14,22 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
     private var statusLabel: NSTextField!
     private var typewriterMode = false
     var onOutlineChange: (([OutlineItem]) -> Void)?
-    private var fileURL: URL? {
-        didSet {
+    weak var document: MarkaDocument?
+
+    private var fileURL: URL? { document?.fileURL }
+
+    var text: String {
+        get { textView?.string ?? pendingText }
+        set {
+            pendingText = newValue
+            guard isViewLoaded else { return }
+            textView.string = newValue
             imageCache.removeAll()
-            updateWindowTitle()
+            reloadDerivedState()
         }
     }
+
+    private var pendingText = ""
 
     override func loadView() {
         let textView = MarkaTextView(usingTextLayoutManager: true)
@@ -68,20 +78,19 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         view = container
 
         highlighter = MarkdownHighlighter(textView: textView)
-        textView.string = Self.sampleDocument
+        textView.string = pendingText
+        reloadDerivedState()
+    }
+
+    private func reloadDerivedState() {
         highlighter.highlightAll()
         updateWordCount()
         updateOutline()
     }
 
-    override func viewDidAppear() {
-        super.viewDidAppear()
-        updateWindowTitle()
-    }
-
     func textDidChange(_ notification: Notification) {
         highlighter.handleEdit()
-        view.window?.isDocumentEdited = true
+        document?.updateChangeCount(.changeDone)
         updateWordCount()
         updateOutline()
         recenterCaret()
@@ -127,14 +136,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
     }
 
     private func updateOutline() {
-        let ns = textView.string as NSString
-        var items: [OutlineItem] = []
-        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: .byLines) { line, lineRange, _, _ in
-            guard let line, case let .heading(level, marker) = MarkdownParser.blockKind(of: line) else { return }
-            let title = (line as NSString).substring(from: NSMaxRange(marker)).trimmingCharacters(in: .whitespaces)
-            items.append(OutlineItem(level: level, title: title, location: lineRange.location))
-        }
-        onOutlineChange?(items)
+        onOutlineChange?(MarkdownParser.outline(in: textView.string))
     }
 
     private func updateWordCount() {
@@ -328,49 +330,6 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         textView.setSelectedRange(NSRange(location: max(selection.location + delta, 0), length: selection.length))
     }
 
-    @objc func newDocument(_ sender: Any?) {
-        guard confirmDiscardIfNeeded() else { return }
-        textView.string = ""
-        fileURL = nil
-        highlighter.highlightAll()
-        updateWordCount()
-        updateOutline()
-        view.window?.isDocumentEdited = false
-    }
-
-    @objc func openDocument(_ sender: Any?) {
-        guard confirmDiscardIfNeeded() else { return }
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = markdownTypes
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            textView.string = try String(contentsOf: url, encoding: .utf8)
-            fileURL = url
-            highlighter.highlightAll()
-            updateWordCount()
-            updateOutline()
-            view.window?.isDocumentEdited = false
-        } catch {
-            NSAlert(error: error).runModal()
-        }
-    }
-
-    @objc func saveDocument(_ sender: Any?) {
-        guard let url = fileURL else {
-            saveDocumentAs(sender)
-            return
-        }
-        write(to: url)
-    }
-
-    @objc func saveDocumentAs(_ sender: Any?) {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = markdownTypes
-        panel.nameFieldStringValue = fileURL?.lastPathComponent ?? "Untitled.md"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        write(to: url)
-    }
-
     private func insertPastedImage(_ data: Data) -> Bool {
         let directory: URL
         let markdownPath: String
@@ -437,7 +396,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         operation.run()
     }
 
-    @objc func printDocument(_ sender: Any?) {
+    @objc func printMarkdown(_ sender: Any?) {
         let printInfo = NSPrintInfo()
         configure(printInfo)
         NSPrintOperation(view: makePrintView(for: printInfo), printInfo: printInfo).run()
@@ -464,39 +423,6 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         printView.textStorage?.setAttributedString(highlighter.exportAttributedString())
         printView.sizeToFit()
         return printView
-    }
-
-    private func write(to url: URL) {
-        do {
-            try textView.string.write(to: url, atomically: true, encoding: .utf8)
-            fileURL = url
-            view.window?.isDocumentEdited = false
-        } catch {
-            NSAlert(error: error).runModal()
-        }
-    }
-
-    private var markdownTypes: [UTType] {
-        var types: [UTType] = [.plainText]
-        if let markdown = UTType(filenameExtension: "md") {
-            types.insert(markdown, at: 0)
-        }
-        return types
-    }
-
-    private func confirmDiscardIfNeeded() -> Bool {
-        guard view.window?.isDocumentEdited == true else { return true }
-        let alert = NSAlert()
-        alert.messageText = "Discard unsaved changes?"
-        alert.informativeText = "The current document has unsaved changes."
-        alert.addButton(withTitle: "Discard")
-        alert.addButton(withTitle: "Cancel")
-        return alert.runModal() == .alertFirstButtonReturn
-    }
-
-    private func updateWindowTitle() {
-        view.window?.title = fileURL?.lastPathComponent ?? "Untitled"
-        view.window?.representedURL = fileURL
     }
 
     fileprivate func displayParagraph(for range: NSRange, in storage: NSTextStorage) -> NSTextParagraph? {
@@ -527,7 +453,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         return NSTextParagraph(attributedString: display)
     }
 
-    private static let sampleDocument = """
+    static let sampleDocument = """
     # Marka
 
     A native Markdown editor for macOS. Type anywhere to try the live styling.

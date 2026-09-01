@@ -3,7 +3,9 @@ import AppKit
 @main
 @MainActor
 final class MarkaApp: NSObject, NSApplicationDelegate {
-    private var window: NSWindow?
+    // Instantiating our controller first makes it NSDocumentController.shared,
+    // which is what supplies document types when running without an app bundle.
+    private let documentController = MarkaDocumentController()
 
     static func main() {
         let app = NSApplication.shared
@@ -15,40 +17,14 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = Self.makeMainMenu()
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Marka"
-
-        let editor = EditorViewController()
-        let outline = OutlineViewController()
-        outline.onSelect = { [weak editor] location in editor?.jump(to: location) }
-        editor.onOutlineChange = { [weak outline] items in outline?.update(items) }
-
-        let split = NSSplitViewController()
-        let sidebarItem = NSSplitViewItem(sidebarWithViewController: outline)
-        sidebarItem.minimumThickness = 160
-        sidebarItem.maximumThickness = 320
-        sidebarItem.canCollapse = true
-        split.addSplitViewItem(sidebarItem)
-        split.addSplitViewItem(NSSplitViewItem(viewController: editor))
-        window.contentViewController = split
-        window.setFrameAutosaveName("MarkaMainWindow")
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        self.window = window
-
         NSApp.activate(ignoringOtherApps: true)
 
-        if let snapshotPath = ProcessInfo.processInfo.environment["MARKA_SNAPSHOT"] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+        guard let snapshotPath = ProcessInfo.processInfo.environment["MARKA_SNAPSHOT"] else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            if let window = NSApp.windows.first(where: { $0.isVisible && $0.contentViewController != nil }) {
                 Self.writeSnapshot(of: window, to: snapshotPath)
-                NSApp.terminate(nil)
             }
+            NSApp.terminate(nil)
         }
     }
 
@@ -61,7 +37,21 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
         true
+    }
+
+    func applicationOpenUntitledFile(_ sender: NSApplication) -> Bool {
+        do {
+            try documentController.openUntitledDocumentAndDisplay(true)
+            return true
+        } catch {
+            NSAlert(error: error).runModal()
+            return false
+        }
     }
 
     private static func makeMainMenu() -> NSMenu {
@@ -75,14 +65,25 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
 
         let fileMenuItem = NSMenuItem()
         let fileMenu = NSMenu(title: "File")
-        fileMenu.addItem(withTitle: "New", action: #selector(EditorViewController.newDocument(_:)), keyEquivalent: "n")
-        fileMenu.addItem(withTitle: "Open…", action: #selector(EditorViewController.openDocument(_:)), keyEquivalent: "o")
+        fileMenu.addItem(withTitle: "New", action: #selector(NSDocumentController.newDocument(_:)), keyEquivalent: "n")
+        fileMenu.addItem(withTitle: "Open…", action: #selector(NSDocumentController.openDocument(_:)), keyEquivalent: "o")
+
+        let recentItem = fileMenu.addItem(withTitle: "Open Recent", action: nil, keyEquivalent: "")
+        let recentMenu = NSMenu(title: "Open Recent")
+        // AppKit fills this submenu in by identifier.
+        recentMenu.identifier = NSUserInterfaceItemIdentifier("NSRecentDocumentsMenu")
+        recentMenu.addItem(
+            withTitle: "Clear Menu",
+            action: #selector(NSDocumentController.clearRecentDocuments(_:)),
+            keyEquivalent: ""
+        )
+        recentItem.submenu = recentMenu
         fileMenu.addItem(.separator())
-        fileMenu.addItem(withTitle: "Save", action: #selector(EditorViewController.saveDocument(_:)), keyEquivalent: "s")
-        fileMenu.addItem(withTitle: "Save As…", action: #selector(EditorViewController.saveDocumentAs(_:)), keyEquivalent: "S")
+        fileMenu.addItem(withTitle: "Save", action: #selector(NSDocument.save(_:)), keyEquivalent: "s")
+        fileMenu.addItem(withTitle: "Save As…", action: #selector(NSDocument.saveAs(_:)), keyEquivalent: "S")
         fileMenu.addItem(.separator())
         fileMenu.addItem(withTitle: "Export as PDF…", action: #selector(EditorViewController.exportPDF(_:)), keyEquivalent: "")
-        fileMenu.addItem(withTitle: "Print…", action: #selector(EditorViewController.printDocument(_:)), keyEquivalent: "p")
+        fileMenu.addItem(withTitle: "Print…", action: #selector(EditorViewController.printMarkdown(_:)), keyEquivalent: "p")
         fileMenu.addItem(.separator())
         fileMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         fileMenuItem.submenu = fileMenu

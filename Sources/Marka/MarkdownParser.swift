@@ -152,6 +152,17 @@ enum MarkdownParser {
         return ns.substring(with: m.range(at: 1))
     }
 
+    static func outline(in text: String) -> [OutlineItem] {
+        let ns = text as NSString
+        var items: [OutlineItem] = []
+        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: .byLines) { line, lineRange, _, _ in
+            guard let line, case let .heading(level, marker) = blockKind(of: line) else { return }
+            let title = (line as NSString).substring(from: NSMaxRange(marker)).trimmingCharacters(in: .whitespaces)
+            items.append(OutlineItem(level: level, title: title, location: lineRange.location))
+        }
+        return items
+    }
+
     static func pipeRanges(in line: String) -> [NSRange] {
         let ns = line as NSString
         var pipes: [NSRange] = []
