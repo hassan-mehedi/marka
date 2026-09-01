@@ -7,6 +7,16 @@ final class MarkaDocument: NSDocument {
 
     private var loadedText = ""
     private weak var editor: EditorViewController?
+    private weak var sidebar: SidebarViewController?
+
+    // AppKit sets fileURL on the main thread for documents without async IO.
+    nonisolated override var fileURL: URL? {
+        didSet {
+            MainActor.assumeIsolated {
+                sidebar?.fileTree.rootURL = fileURL?.deletingLastPathComponent()
+            }
+        }
+    }
 
     override init() {
         super.init()
@@ -32,16 +42,18 @@ final class MarkaDocument: NSDocument {
         editor.text = loadedText
         self.editor = editor
 
-        let outline = OutlineViewController()
-        outline.onSelect = { [weak editor] location in editor?.jump(to: location) }
-        editor.onOutlineChange = { [weak outline] items in outline?.update(items) }
+        let sidebar = SidebarViewController()
+        sidebar.outline.onSelect = { [weak editor] location in editor?.jump(to: location) }
+        editor.onOutlineChange = { [weak sidebar] items in sidebar?.outline.update(items) }
+        sidebar.fileTree.rootURL = fileURL?.deletingLastPathComponent()
+        self.sidebar = sidebar
 
         let split = NSSplitViewController()
-        let sidebar = NSSplitViewItem(sidebarWithViewController: outline)
-        sidebar.minimumThickness = 160
-        sidebar.maximumThickness = 320
-        sidebar.canCollapse = true
-        split.addSplitViewItem(sidebar)
+        let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebar)
+        sidebarItem.minimumThickness = 160
+        sidebarItem.maximumThickness = 320
+        sidebarItem.canCollapse = true
+        split.addSplitViewItem(sidebarItem)
         split.addSplitViewItem(NSSplitViewItem(viewController: editor))
 
         let window = NSWindow(

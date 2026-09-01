@@ -69,6 +69,10 @@ open build/Marka.app
 Documents use NSDocument, so multiple windows, tabs, Open Recent, and the
 standard save and revert flows work.
 
+The sidebar (Shift+Cmd+O) has two panes: Outline lists the headings, Files
+browses the folder of the open document (markdown and text files plus
+subfolders; click a file to open it).
+
 View > Theme switches themes. Built in: Default (follows the system
 appearance), GitHub, Night, and Newsprint (Georgia on sepia). A theme sets
 fonts, editor colors, code token colors, and the window appearance, and the
@@ -89,6 +93,6 @@ Folder) to add your own:
 }
 ```
 
-Not built yet: docx/LaTeX/epub export, multi-line `$$` blocks, a file
-tree sidebar, and true hidden-marker layout for text spans (markers currently
+Not built yet: docx/LaTeX/epub export, multi-line `$$` blocks, and true
+hidden-marker layout for text spans (markers currently
 shrink to a 0.01pt clear font).
