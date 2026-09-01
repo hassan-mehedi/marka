@@ -46,7 +46,7 @@ find bar (Alt+Cmd+F for find and replace) with incremental search.
 
 Fenced code blocks highlight via tree-sitter (CodeEditLanguages grammars,
 language tag on the fence picks the grammar). Table rows style in place:
-pipes dim, the header row above a separator goes bold. Pasting an image
+pipes dim, the header row above a separator goes bold. Pasting or dropping an image
 saves a PNG (into assets/ next to the file, or the temp folder for unsaved
 documents), inserts the markdown reference, and an image-only line renders
 the picture inline; the raw markdown comes back when the caret enters it.
