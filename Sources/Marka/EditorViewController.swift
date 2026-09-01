@@ -461,6 +461,11 @@ final class EditorViewController: NSViewController, NSTextViewDelegate {
 
     > A blockquote line.
 
+    | Feature | State |
+    | ------- | ----- |
+    | Tables  | styled rows |
+    | Images  | paste to insert |
+
     ```swift
     // Syntax highlighting via tree-sitter
     func greet(_ name: String) -> String {

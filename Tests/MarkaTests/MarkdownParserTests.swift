@@ -88,6 +88,19 @@ import Testing
     #expect(!MarkdownParser.isEmptyListItem("plain"))
 }
 
+@Test func tableSeparatorDetection() {
+    #expect(MarkdownParser.blockKind(of: "| --- | :---: |") == .tableSeparator)
+    #expect(MarkdownParser.blockKind(of: "---|---") == .tableSeparator)
+    #expect(MarkdownParser.blockKind(of: "---") == .horizontalRule)
+}
+
+@Test func pipeRangesSkipEscapedPipes() {
+    let pipes = MarkdownParser.pipeRanges(in: "| a \\| b | c |")
+    #expect(pipes.count == 3)
+    #expect(pipes[0] == NSRange(location: 0, length: 1))
+    #expect(pipes[1] == NSRange(location: 9, length: 1))
+}
+
 @Test func fenceRegions() {
     let text = "before\n```swift\ncode line\n```\nafter"
     let fences = MarkdownParser.fences(in: text)

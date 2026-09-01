@@ -81,7 +81,16 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
 
     private func restyle(paragraphsIn range: NSRange, storage: NSTextStorage, selection: NSRange? = nil) {
         let ns = storage.string as NSString
-        let target = ns.paragraphRange(for: clamp(range, to: ns.length))
+        var target = ns.paragraphRange(for: clamp(range, to: ns.length))
+        // Include one paragraph on each side: table header styling depends on neighbors.
+        if target.location > 0 {
+            let previous = ns.paragraphRange(for: NSRange(location: target.location - 1, length: 0))
+            target = NSUnionRange(target, previous)
+        }
+        if NSMaxRange(target) < ns.length {
+            let next = ns.paragraphRange(for: NSRange(location: NSMaxRange(target), length: 0))
+            target = NSUnionRange(target, next)
+        }
         let selection = selection ?? textView.selectedRange()
 
         storage.beginEditing()
@@ -150,8 +159,12 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
                     range: rest
                 )
             }
+        case .tableSeparator:
+            storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: paragraph)
+            dimIfUnfocused(paragraph, storage: storage, selection: selection)
+            return
         case .paragraph:
-            break
+            styleTableRowIfNeeded(trimmed, paragraph: paragraph, ns: ns, storage: storage)
         }
 
         for span in MarkdownParser.inlineSpans(in: trimmed) {
@@ -159,6 +172,40 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
         }
 
         dimIfUnfocused(paragraph, storage: storage, selection: selection)
+    }
+
+    private func styleTableRowIfNeeded(_ line: String, paragraph: NSRange, ns: NSString, storage: NSTextStorage) {
+        let pipes = MarkdownParser.pipeRanges(in: line)
+        guard !pipes.isEmpty else { return }
+
+        let previous = neighborLine(of: paragraph, ns: ns, forward: false)
+        let next = neighborLine(of: paragraph, ns: ns, forward: true)
+        let nextIsSeparator = next.map { MarkdownParser.blockKind(of: $0) == .tableSeparator } ?? false
+        let previousIsSeparator = previous.map { MarkdownParser.blockKind(of: $0) == .tableSeparator } ?? false
+        let previousIsRow = previous.map { !MarkdownParser.pipeRanges(in: $0).isEmpty } ?? false
+        guard nextIsSeparator || previousIsSeparator || previousIsRow else { return }
+
+        for pipe in pipes {
+            storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: shifted(pipe, by: paragraph.location))
+        }
+        if nextIsSeparator {
+            addTrait(.boldFontMask, range: paragraph, storage: storage)
+        }
+    }
+
+    private func neighborLine(of paragraph: NSRange, ns: NSString, forward: Bool) -> String? {
+        let location: Int
+        if forward {
+            guard NSMaxRange(paragraph) < ns.length else { return nil }
+            location = NSMaxRange(paragraph)
+        } else {
+            guard paragraph.location > 0 else { return nil }
+            location = paragraph.location - 1
+        }
+        let range = ns.paragraphRange(for: NSRange(location: location, length: 0))
+        var line = ns.substring(with: range)
+        if line.hasSuffix("\n") { line.removeLast() }
+        return line
     }
 
     private static let tokenColors: [String: NSColor] = [

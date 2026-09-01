@@ -20,6 +20,7 @@ enum BlockKind: Equatable {
     case taskListItem(marker: NSRange, box: NSRange, checked: Bool)
     case horizontalRule
     case fenceDelimiter
+    case tableSeparator
     case paragraph
 }
 
@@ -44,6 +45,7 @@ enum MarkdownParser {
     private static let taskItem = regex("^([ \\t]{0,8}[-*+][ \\t]+)(\\[[ xX]\\])(?=[ \\t]|$)")
     private static let orderedMarker = regex("^([ \\t]*)(\\d{1,9})([.)][ \\t]+)$")
     private static let horizontalRule = regex("^[ \\t]*(?:-{3,}|_{3,}|\\*{3,})[ \\t]*$")
+    private static let tableSeparatorRow = regex("^[ \\t]*\\|?[ \\t]*:?-+:?[ \\t]*(?:\\|[ \\t]*:?-+:?[ \\t]*)*\\|?[ \\t]*$")
 
     private static let codeSpan = regex("(`+)([^`\\n]+?)(\\1)")
     private static let linkSpan = regex("(\\[)([^\\[\\]\\n]+)(\\]\\(([^()\\s]*)\\))")
@@ -60,6 +62,9 @@ enum MarkdownParser {
         }
         if horizontalRule.firstMatch(in: line, range: full) != nil {
             return .horizontalRule
+        }
+        if line.contains("|"), tableSeparatorRow.firstMatch(in: line, range: full) != nil {
+            return .tableSeparator
         }
         if let m = heading.firstMatch(in: line, range: full) {
             return .heading(level: m.range(at: 1).length, marker: m.range)
@@ -137,6 +142,24 @@ enum MarkdownParser {
             ))
         }
         return info
+    }
+
+    static func pipeRanges(in line: String) -> [NSRange] {
+        let ns = line as NSString
+        var pipes: [NSRange] = []
+        var index = 0
+        while index < ns.length {
+            let character = ns.character(at: index)
+            if character == 0x5C { // backslash escapes the next character
+                index += 2
+                continue
+            }
+            if character == 0x7C { // |
+                pipes.append(NSRange(location: index, length: 1))
+            }
+            index += 1
+        }
+        return pipes
     }
 
     static func continuationMarker(afterLine line: String) -> String? {
