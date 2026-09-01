@@ -430,27 +430,101 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         var line = ns.substring(with: range)
         let hadNewline = line.hasSuffix("\n")
         if hadNewline { line.removeLast() }
-
-        guard let path = MarkdownParser.imageLinePath(in: line) else { return nil }
-
         let selection = textView.selectedRange()
-        let caretInside = selection.location >= range.location && selection.location <= NSMaxRange(range)
-        guard !caretInside, NSIntersectionRange(selection, range).length == 0 else { return nil }
 
-        guard let image = resolvedImage(at: path) else { return nil }
+        if !selectionTouches(range, selection) {
+            if let path = MarkdownParser.imageLinePath(in: line), let image = resolvedImage(at: path) {
+                return blockParagraph(with: image, centered: false, newline: hadNewline)
+            }
+            if let latex = MarkdownParser.displayMathContent(in: line),
+               let image = MathRenderer.shared.image(
+                   latex: latex,
+                   fontSize: MarkdownHighlighter.baseFont.pointSize * 1.2,
+                   display: true,
+                   appearance: view.effectiveAppearance
+               ) {
+                return blockParagraph(with: image, centered: true, newline: hadNewline)
+            }
+        }
 
+        return inlineMathParagraph(for: range, line: line, storage: storage, selection: selection)
+    }
+
+    private func inlineMathParagraph(
+        for range: NSRange,
+        line: String,
+        storage: NSTextStorage,
+        selection: NSRange
+    ) -> NSTextParagraph? {
+        let spans = MarkdownParser.inlineMathSpans(in: line)
+        guard !spans.isEmpty else { return nil }
+
+        let lineNS = line as NSString
+        let display = NSMutableAttributedString(attributedString: storage.attributedSubstring(from: range))
+        var replacedAny = false
+
+        for span in spans.reversed() {
+            let global = NSRange(location: range.location + span.range.location, length: span.range.length)
+            guard !selectionTouches(global, selection) else { continue }
+            guard let image = MathRenderer.shared.image(
+                latex: lineNS.substring(with: span.content),
+                fontSize: MarkdownHighlighter.baseFont.pointSize,
+                display: false,
+                appearance: view.effectiveAppearance
+            ) else { continue }
+
+            let attachment = NSTextAttachment()
+            attachment.image = image
+            // Sit the formula on the text baseline instead of the line bottom.
+            attachment.bounds = NSRect(
+                x: 0,
+                y: MarkdownHighlighter.baseFont.descender * 0.6,
+                width: image.size.width,
+                height: image.size.height
+            )
+            display.replaceCharacters(in: span.range, with: NSAttributedString(attachment: attachment))
+            replacedAny = true
+        }
+
+        guard replacedAny else { return nil }
+        return NSTextParagraph(attributedString: display)
+    }
+
+    private func blockParagraph(with image: NSImage, centered: Bool, newline: Bool) -> NSTextParagraph {
         let insets = textView.textContainerInset.width * 2
         let maxWidth = max(120, textView.bounds.width - insets - 24)
         let scale = image.size.width > maxWidth ? maxWidth / image.size.width : 1
+
         let attachment = NSTextAttachment()
         attachment.image = image
-        attachment.bounds = NSRect(x: 0, y: 0, width: image.size.width * scale, height: image.size.height * scale)
+        attachment.bounds = NSRect(
+            x: 0,
+            y: 0,
+            width: image.size.width * scale,
+            height: image.size.height * scale
+        )
 
         let display = NSMutableAttributedString(attachment: attachment)
-        if hadNewline {
+        if newline {
             display.append(NSAttributedString(string: "\n"))
         }
+        if centered {
+            let style = NSMutableParagraphStyle()
+            style.alignment = .center
+            display.addAttribute(
+                .paragraphStyle,
+                value: style,
+                range: NSRange(location: 0, length: display.length)
+            )
+        }
         return NSTextParagraph(attributedString: display)
+    }
+
+    private func selectionTouches(_ range: NSRange, _ selection: NSRange) -> Bool {
+        if selection.length == 0 {
+            return selection.location >= range.location && selection.location <= NSMaxRange(range)
+        }
+        return NSIntersectionRange(range, selection).length > 0
     }
 
     static let sampleDocument = """
@@ -476,6 +550,10 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
     - [x] finished task
 
     > A blockquote line.
+
+    Math: inline $E = mc^2$ and a display equation.
+
+    $$ \\int_{0}^{\\infty} e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2} $$
 
     | Feature | State |
     | ------- | ----- |

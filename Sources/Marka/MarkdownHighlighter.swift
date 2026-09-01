@@ -171,7 +171,22 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
             applyInline(span, offset: paragraph.location, storage: storage, selection: selection)
         }
 
+        styleMathDelimiters(in: trimmed, paragraph: paragraph, storage: storage)
+
         dimIfUnfocused(paragraph, storage: storage, selection: selection)
+    }
+
+    private func styleMathDelimiters(in line: String, paragraph: NSRange, storage: NSTextStorage) {
+        if MarkdownParser.displayMathContent(in: line) != nil {
+            storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: paragraph)
+            return
+        }
+        for math in MarkdownParser.inlineMathSpans(in: line) {
+            let open = NSRange(location: paragraph.location + math.range.location, length: 1)
+            let close = NSRange(location: paragraph.location + NSMaxRange(math.range) - 1, length: 1)
+            storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: open)
+            storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: close)
+        }
     }
 
     private func styleTableRowIfNeeded(_ line: String, paragraph: NSRange, ns: NSString, storage: NSTextStorage) {

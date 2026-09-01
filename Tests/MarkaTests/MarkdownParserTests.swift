@@ -139,3 +139,36 @@ import Testing
     let tokens = CodeHighlighter.shared.highlights(for: "let x = 1", language: "brainfuck")
     #expect(tokens.isEmpty)
 }
+
+@Test func displayMathDetection() {
+    #expect(MarkdownParser.displayMathContent(in: "$$ x^2 + y^2 = z^2 $$") == "x^2 + y^2 = z^2")
+    #expect(MarkdownParser.displayMathContent(in: "$$E = mc^2$$") == "E = mc^2")
+    #expect(MarkdownParser.displayMathContent(in: "text $$x$$ more") == nil)
+    #expect(MarkdownParser.displayMathContent(in: "$x$") == nil)
+}
+
+@Test func inlineMathSpansFound() {
+    let spans = MarkdownParser.inlineMathSpans(in: "mass $E = mc^2$ energy")
+    #expect(spans.count == 1)
+    let line = "mass $E = mc^2$ energy" as NSString
+    #expect(line.substring(with: spans[0].content) == "E = mc^2")
+}
+
+@Test func inlineMathIgnoredInCodeSpan() {
+    #expect(MarkdownParser.inlineMathSpans(in: "`$x$`").isEmpty)
+}
+
+@Test func inlineMathIgnoresPrices() {
+    #expect(MarkdownParser.inlineMathSpans(in: "costs $5 and $10 total").isEmpty)
+}
+
+@Test func inlineMathSkipsDisplayLines() {
+    #expect(MarkdownParser.inlineMathSpans(in: "$$ x^2 $$").isEmpty)
+}
+
+@Test @MainActor func mathRendererProducesImage() {
+    let image = MathRenderer.shared.image(latex: "\\frac{a}{b}", fontSize: 17, display: true, appearance: nil)
+    #expect(image != nil)
+    #expect((image?.size.width ?? 0) > 0)
+    #expect((image?.size.height ?? 0) > 0)
+}

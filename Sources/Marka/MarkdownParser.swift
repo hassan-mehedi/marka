@@ -24,6 +24,11 @@ enum BlockKind: Equatable {
     case paragraph
 }
 
+struct MathSpan: Equatable {
+    let range: NSRange
+    let content: NSRange
+}
+
 struct FenceBlock: Equatable {
     var range: NSRange
     var language: String
@@ -145,6 +150,34 @@ enum MarkdownParser {
     }
 
     private static let imageLine = regex("^[ \\t]*!\\[[^\\]\\n]*\\]\\(([^()\\s]+)\\)[ \\t]*$")
+    private static let displayMathLine = regex("^[ \\t]*\\$\\$[ \\t]*(.*\\S)[ \\t]*\\$\\$[ \\t]*$")
+    private static let inlineMath = regex("(?<![\\\\$])(\\$)(?![\\s$])((?:\\\\.|[^$\\n])+?)(?<![\\s\\\\])(\\$)(?![\\d$])")
+
+    static func displayMathContent(in line: String) -> String? {
+        let ns = line as NSString
+        guard let m = displayMathLine.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else { return nil }
+        return ns.substring(with: m.range(at: 1))
+    }
+
+    static func inlineMathSpans(in line: String) -> [MathSpan] {
+        let ns = line as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        guard displayMathContent(in: line) == nil else { return [] }
+
+        // Math inside a code span is literal text, not a formula.
+        var protected: [NSRange] = []
+        codeSpan.enumerateMatches(in: line, range: full) { match, _, _ in
+            if let match { protected.append(match.range) }
+        }
+
+        var spans: [MathSpan] = []
+        inlineMath.enumerateMatches(in: line, range: full) { match, _, _ in
+            guard let match else { return }
+            guard !protected.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) else { return }
+            spans.append(MathSpan(range: match.range, content: match.range(at: 2)))
+        }
+        return spans
+    }
 
     static func imageLinePath(in line: String) -> String? {
         let ns = line as NSString
