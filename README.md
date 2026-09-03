@@ -44,7 +44,9 @@ Swift, AppKit, TextKit 2. No Electron, no web view for the editor itself.
   typewriter mode, smart punctuation, native find and replace, word count
   with a stats popover.
 - NSDocument under the hood, so tabs, Open Recent, autosave-style revert,
-  and multiple windows work the way macOS users expect.
+  and multiple windows work the way macOS users expect. Tabs draw as rounded,
+  bordered pills in the theme colors; the strip appears once a window holds
+  two or more tabs, and middle-click closes a tab.
 
 ## Install
 

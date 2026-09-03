@@ -39,7 +39,7 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
                 document?.sidebarSearch(query)
             }
             if let caret = environment["MARKA_SNAPSHOT_CARET"].flatMap(Int.init),
-               let split = NSApp.keyWindow?.contentViewController as? NSSplitViewController,
+               let split = (NSApp.keyWindow?.contentViewController as? DocumentContentViewController)?.split,
                let editor = split.splitViewItems.last?.viewController as? EditorViewController {
                 editor.jump(to: caret)
                 if let typed = environment["MARKA_SNAPSHOT_TYPE"] {

@@ -66,7 +66,7 @@ final class MarkaDocument: NSDocument {
             backing: .buffered,
             defer: false
         )
-        window.contentViewController = split
+        window.contentViewController = DocumentContentViewController(split: split)
         window.setFrameAutosaveName("MarkaDocumentWindow")
         window.tabbingMode = .preferred
         window.titlebarAppearsTransparent = true
@@ -94,7 +94,7 @@ final class MarkaDocument: NSDocument {
     }
 
     @objc func findInFolder(_ sender: Any?) {
-        guard let split = windowControllers.first?.window?.contentViewController as? NSSplitViewController,
+        guard let split = (windowControllers.first?.window?.contentViewController as? DocumentContentViewController)?.split,
               let sidebarItem = split.splitViewItems.first else { return }
         if sidebarItem.isCollapsed { sidebarItem.animator().isCollapsed = false }
         sidebar?.showSearch()
