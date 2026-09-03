@@ -45,6 +45,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
 
     private(set) var textView: MarkaTextView!
     private var imageCache: [String: NSImage] = [:]
+    private var pendingRemoteImages: Set<String> = []
     private var tableImageCache: [String: NSImage] = [:]
     private var layoutWidth: CGFloat = 0
     private var pendingWidthRefresh: DispatchWorkItem?
@@ -652,6 +653,10 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         if let cached = imageCache[path] {
             return cached
         }
+        if path.hasPrefix("http://") || path.hasPrefix("https://") {
+            fetchRemoteImage(at: path)
+            return nil
+        }
         let url: URL
         if path.hasPrefix("/") {
             url = URL(fileURLWithPath: path)
@@ -663,6 +668,28 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         guard let image = NSImage(contentsOf: url) else { return nil }
         imageCache[path] = image
         return image
+    }
+
+    // Remote images load once in the background; the line shows its source
+    // until the download lands, then the paragraph refreshes.
+    private func fetchRemoteImage(at path: String) {
+        guard !pendingRemoteImages.contains(path), let url = URL(string: path) else { return }
+        pendingRemoteImages.insert(path)
+        Task { [weak self] in
+            let image = await Self.downloadImage(from: url)
+            guard let self else { return }
+            pendingRemoteImages.remove(path)
+            guard let image else { return }
+            imageCache[path] = image
+            refreshDisplayParagraphs()
+        }
+    }
+
+    nonisolated private static func downloadImage(from url: URL) async -> NSImage? {
+        guard let (data, response) = try? await URLSession.shared.data(from: url),
+              (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true
+        else { return nil }
+        return NSImage(data: data)
     }
 
     @objc func copyAsHTML(_ sender: Any?) {

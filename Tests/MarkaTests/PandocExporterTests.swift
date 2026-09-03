@@ -39,3 +39,18 @@ private let sample = "# Chapter\n\nSome **bold** text with $x^2$ math.\n\n- one\
         try PandocExporter.export(markdown: "x", to: url, format: "nonsense", title: "T", workingDirectory: nil)
     }
 }
+
+@Test func pandocImportConvertsHTML() throws {
+    guard PandocExporter.pandocURL != nil else { return }
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("marka-\(UUID().uuidString).html")
+    defer { try? FileManager.default.removeItem(at: url) }
+    try "<h1>Title</h1><p>Some <strong>bold</strong> text.</p>".write(to: url, atomically: true, encoding: .utf8)
+
+    let markdown = try PandocExporter.importMarkdown(from: url)
+    #expect(markdown.contains("# Title"))
+    #expect(markdown.contains("**bold**"))
+
+    let unsupported = url.deletingPathExtension().appendingPathExtension("xyz")
+    #expect(throws: NSError.self) { try PandocExporter.importMarkdown(from: unsupported) }
+}

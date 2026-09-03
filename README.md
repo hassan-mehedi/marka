@@ -18,11 +18,14 @@ Swift, AppKit, TextKit 2. No Electron, no web view for the editor itself.
 - Mermaid diagrams render offline from a vendored mermaid 11.15.0 in a
   hidden WKWebView. Put the caret inside a diagram to edit its source.
 - Images paste or drag in as a saved PNG plus a markdown reference, and an
-  image-only line shows the picture inline.
+  image-only line shows the picture inline. Remote `https://` images load in
+  the background.
 - `[TOC]` renders a clickable table of contents. Footnotes render as raised
   superscripts with dimmed definition lines.
 - Export to PDF, standalone HTML, Word .docx, epub, and LaTeX. Epub and
   LaTeX go through pandoc (`brew install pandoc`); the rest is native.
+  File > Import converts docx, odt, html, epub, rst, LaTeX, and more to
+  Markdown through pandoc.
 - Themes: Default, GitHub, GitHub Dark, Dracula, One Dark Pro, Night, and
   Newsprint built in, plus JSON user themes in `~/Library/Application Support/Marka/Themes/`.
 - Format menu covers lists, task lists, blockquotes, code fences, tables,

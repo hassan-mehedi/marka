@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 @MainActor
 final class MarkaDocument: NSDocument {
@@ -78,6 +79,12 @@ final class MarkaDocument: NSDocument {
 
     var folderURL: URL? { fileURL?.deletingLastPathComponent() }
 
+    func replaceText(with text: String) {
+        loadedText = text
+        editor?.text = text
+        updateChangeCount(.changeDone)
+    }
+
     func jump(to offset: Int) {
         editor?.jump(to: offset)
     }
@@ -136,6 +143,22 @@ final class MarkaDocument: NSDocument {
 @MainActor
 final class MarkaDocumentController: NSDocumentController {
     nonisolated override var defaultType: String? { MarkaDocument.markdownType }
+
+    // File > Import: converts a docx, html, epub, or similar file through
+    // pandoc and opens the Markdown as a new untitled document.
+    @objc func importDocument(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = PandocExporter.importFormats.keys.compactMap { UTType(filenameExtension: $0) }
+        panel.message = "Choose a document to convert to Markdown"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let markdown = try PandocExporter.importMarkdown(from: url)
+            let document = try openUntitledDocumentAndDisplay(true) as? MarkaDocument
+            document?.replaceText(with: markdown)
+        } catch {
+            NSAlert(error: error).runModal()
+        }
+    }
 
     nonisolated override func documentClass(forType typeName: String) -> AnyClass? {
         MarkaDocument.self

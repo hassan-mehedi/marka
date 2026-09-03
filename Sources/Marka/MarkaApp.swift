@@ -107,6 +107,7 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
             keyEquivalent: ""
         )
         recentItem.submenu = recentMenu
+        fileMenu.addItem(withTitle: "Import…", action: #selector(MarkaDocumentController.importDocument(_:)), keyEquivalent: "")
         fileMenu.addItem(.separator())
         fileMenu.addItem(withTitle: "Save", action: #selector(NSDocument.save(_:)), keyEquivalent: "s")
         fileMenu.addItem(withTitle: "Save As…", action: #selector(NSDocument.saveAs(_:)), keyEquivalent: "S")
