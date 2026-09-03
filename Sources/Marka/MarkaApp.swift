@@ -19,17 +19,31 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = Self.makeMainMenu()
         NSApp.activate(ignoringOtherApps: true)
 
-        guard let snapshotPath = ProcessInfo.processInfo.environment["MARKA_SNAPSHOT"] else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            if let window = NSApp.windows.first(where: { $0.isVisible && $0.contentViewController != nil }) {
-                Self.writeSnapshot(of: window, to: snapshotPath)
+        let environment = ProcessInfo.processInfo.environment
+        guard let snapshotPath = environment["MARKA_SNAPSHOT"] else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [documentController] in
+            if environment["MARKA_SNAPSHOT_TABS"] != nil {
+                let front = NSApp.keyWindow
+                documentController.newDocument(nil)
+                front?.makeKeyAndOrderFront(nil)
             }
-            NSApp.terminate(nil)
+            if let caret = environment["MARKA_SNAPSHOT_CARET"].flatMap(Int.init),
+               let split = NSApp.keyWindow?.contentViewController as? NSSplitViewController,
+               let editor = split.splitViewItems.last?.viewController as? EditorViewController {
+                editor.jump(to: caret)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible && $0.contentViewController != nil }) {
+                    Self.writeSnapshot(of: window, to: snapshotPath, wholeWindow: environment["MARKA_SNAPSHOT_FRAME"] != nil)
+                }
+                NSApp.terminate(nil)
+            }
         }
     }
 
-    private static func writeSnapshot(of window: NSWindow, to path: String) {
-        guard let view = window.contentView,
+    private static func writeSnapshot(of window: NSWindow, to path: String, wholeWindow: Bool) {
+        guard let content = window.contentView,
+              let view = wholeWindow ? content.superview : content,
               let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)
         else { return }
         view.cacheDisplay(in: view.bounds, to: rep)

@@ -95,12 +95,29 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
     override func viewDidAppear() {
         super.viewDidAppear()
         view.window?.appearance = ThemeManager.shared.current.appearance.flatMap(NSAppearance.init(named:))
+        view.window?.backgroundColor = ThemeManager.shared.current.resolvedBackground
     }
 
     @objc private func themeDidChange() {
+        tableImageCache.removeAll()
         applyTheme()
         reloadDerivedState()
         refreshDisplayParagraphs()
+    }
+
+    // Table images are laid out for the current width, so rebuild them once
+    // a resize settles.
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        let width = textView.bounds.width
+        guard width != layoutWidth else { return }
+        let firstLayout = layoutWidth == 0
+        layoutWidth = width
+        guard !firstLayout, !highlighter.tables.isEmpty else { return }
+        pendingWidthRefresh?.cancel()
+        let refresh = DispatchWorkItem { [weak self] in self?.refreshDisplayParagraphs() }
+        pendingWidthRefresh = refresh
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: refresh)
     }
 
     private var themeIsDark: Bool {
@@ -121,6 +138,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         (view as? OpaqueBackgroundView)?.color = theme.resolvedBackground
         textView.insertionPointColor = theme.resolvedText
         view.window?.appearance = theme.appearance.flatMap(NSAppearance.init(named:))
+        view.window?.backgroundColor = theme.resolvedBackground
         MathRenderer.shared.clearCache()
     }
 

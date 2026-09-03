@@ -65,6 +65,8 @@ final class MarkaDocument: NSDocument {
         window.contentViewController = split
         window.setFrameAutosaveName("MarkaDocumentWindow")
         window.tabbingMode = .preferred
+        window.titlebarAppearsTransparent = true
+        window.backgroundColor = ThemeManager.shared.current.resolvedBackground
 
         let controller = NSWindowController(window: window)
         addWindowController(controller)
