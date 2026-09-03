@@ -13,7 +13,7 @@ final class MarkaDocument: NSDocument {
     nonisolated override var fileURL: URL? {
         didSet {
             MainActor.assumeIsolated {
-                sidebar?.fileTree.rootURL = fileURL?.deletingLastPathComponent()
+                sidebar?.rootURL = fileURL?.deletingLastPathComponent()
             }
         }
     }
@@ -45,7 +45,10 @@ final class MarkaDocument: NSDocument {
         let sidebar = SidebarViewController()
         sidebar.outline.onSelect = { [weak editor] location in editor?.jump(to: location) }
         editor.onOutlineChange = { [weak sidebar] items in sidebar?.outline.update(items) }
-        sidebar.fileTree.rootURL = fileURL?.deletingLastPathComponent()
+        sidebar.rootURL = fileURL?.deletingLastPathComponent()
+        sidebar.search.onSelect = { match in
+            MarkaDocument.reveal(match)
+        }
         self.sidebar = sidebar
 
         let split = NSSplitViewController()
@@ -71,6 +74,35 @@ final class MarkaDocument: NSDocument {
         let controller = NSWindowController(window: window)
         addWindowController(controller)
         window.center()
+    }
+
+    var folderURL: URL? { fileURL?.deletingLastPathComponent() }
+
+    func jump(to offset: Int) {
+        editor?.jump(to: offset)
+    }
+
+    @objc func quickOpen(_ sender: Any?) {
+        QuickOpenController.shared.show(root: folderURL)
+    }
+
+    @objc func findInFolder(_ sender: Any?) {
+        guard let split = windowControllers.first?.window?.contentViewController as? NSSplitViewController,
+              let sidebarItem = split.splitViewItems.first else { return }
+        if sidebarItem.isCollapsed { sidebarItem.animator().isCollapsed = false }
+        sidebar?.showSearch()
+    }
+
+    func sidebarSearch(_ query: String) {
+        sidebar?.search.search(query)
+    }
+
+    // Opens the matched file (reusing its window when already open) and moves
+    // the caret to the match.
+    static func reveal(_ match: ProjectFiles.Match) {
+        NSDocumentController.shared.openDocument(withContentsOf: match.url, display: true) { document, _, _ in
+            (document as? MarkaDocument)?.jump(to: match.offset)
+        }
     }
 
     // AppKit reads and writes documents on the main thread unless the document

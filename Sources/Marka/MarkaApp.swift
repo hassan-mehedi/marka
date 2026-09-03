@@ -30,6 +30,14 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
             if environment["MARKA_SNAPSHOT_SETTINGS"] != nil {
                 PreferencesWindowController.shared.showWindow(nil)
             }
+            let document = NSApp.keyWindow?.windowController?.document as? MarkaDocument
+            if environment["MARKA_SNAPSHOT_QUICKOPEN"] != nil {
+                document?.quickOpen(nil)
+            }
+            if let query = environment["MARKA_SNAPSHOT_SEARCH"] {
+                document?.findInFolder(nil)
+                document?.sidebarSearch(query)
+            }
             if let caret = environment["MARKA_SNAPSHOT_CARET"].flatMap(Int.init),
                let split = NSApp.keyWindow?.contentViewController as? NSSplitViewController,
                let editor = split.splitViewItems.last?.viewController as? EditorViewController {
@@ -86,6 +94,8 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         let fileMenu = NSMenu(title: "File")
         fileMenu.addItem(withTitle: "New", action: #selector(NSDocumentController.newDocument(_:)), keyEquivalent: "n")
         fileMenu.addItem(withTitle: "Open…", action: #selector(NSDocumentController.openDocument(_:)), keyEquivalent: "o")
+        let quickOpen = fileMenu.addItem(withTitle: "Quick Open…", action: #selector(MarkaDocument.quickOpen(_:)), keyEquivalent: "o")
+        quickOpen.keyEquivalentModifierMask = [.command, .shift]
 
         let recentItem = fileMenu.addItem(withTitle: "Open Recent", action: nil, keyEquivalent: "")
         let recentMenu = NSMenu(title: "Open Recent")
@@ -138,6 +148,9 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
             ("Find Previous", "g", [.command, .shift], .previousMatch),
             ("Use Selection for Find", "e", [.command], .setSearchString),
         ]
+        let findInFolder = findMenu.addItem(withTitle: "Find in Folder…", action: #selector(MarkaDocument.findInFolder(_:)), keyEquivalent: "f")
+        findInFolder.keyEquivalentModifierMask = [.command, .shift]
+        findMenu.addItem(.separator())
         for (title, key, modifiers, action) in findActions {
             let item = findMenu.addItem(
                 withTitle: title,
@@ -154,10 +167,10 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         let viewMenuItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
         viewMenu.addItem(withTitle: "Source Mode", action: #selector(EditorViewController.toggleSourceMode(_:)), keyEquivalent: "/")
-        let outlineToggle = viewMenu.addItem(withTitle: "Toggle Outline", action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "o")
+        let outlineToggle = viewMenu.addItem(withTitle: "Toggle Sidebar", action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "l")
         outlineToggle.keyEquivalentModifierMask = [.command, .shift]
         let focusToggle = viewMenu.addItem(withTitle: "Focus Mode", action: #selector(EditorViewController.toggleFocusMode(_:)), keyEquivalent: "f")
-        focusToggle.keyEquivalentModifierMask = [.command, .shift]
+        focusToggle.keyEquivalentModifierMask = [.command, .option, .shift]
         let typewriterToggle = viewMenu.addItem(withTitle: "Typewriter Mode", action: #selector(EditorViewController.toggleTypewriterMode(_:)), keyEquivalent: "t")
         typewriterToggle.keyEquivalentModifierMask = [.command, .shift]
         viewMenu.addItem(.separator())

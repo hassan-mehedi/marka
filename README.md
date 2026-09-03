@@ -34,7 +34,8 @@ Swift, AppKit, TextKit 2. No Electron, no web view for the editor itself.
 - Settings (Cmd+,) for editor and code fonts, maximum line width, the image
   folder, spell check, autocorrect, and autosave. Zoom with Cmd+Shift+= and
   Cmd+Shift+-.
-- Sidebar with outline and file tree panes, source mode, focus mode,
+- Sidebar with outline, file tree, and folder search panes (Cmd+Shift+F),
+  Quick Open fuzzy file switcher (Cmd+Shift+O), source mode, focus mode,
   typewriter mode, smart punctuation, native find and replace, word count
   with a stats popover.
 - NSDocument under the hood, so tabs, Open Recent, autosave-style revert,
@@ -89,8 +90,10 @@ For visual checks without a human, launch with `MARKA_SNAPSHOT=/path/out.png`
 and the app writes a window snapshot and quits. `MARKA_SAMPLE=1` loads a
 sample document first, `MARKA_SIDEBAR=files` opens the file tree pane,
 `MARKA_SNAPSHOT_CARET=<offset>` places the caret before capturing,
-`MARKA_SNAPSHOT_TABS=1` opens a second tab, and `MARKA_SNAPSHOT_FRAME=1`
-captures the window frame including the title bar.
+`MARKA_SNAPSHOT_TABS=1` opens a second tab, `MARKA_SNAPSHOT_FRAME=1`
+captures the window frame including the title bar, `MARKA_SNAPSHOT_SETTINGS=1`
+and `MARKA_SNAPSHOT_QUICKOPEN=1` open those panels, and
+`MARKA_SNAPSHOT_SEARCH=<query>` runs a folder search in the sidebar.
 
 ## How it works
 

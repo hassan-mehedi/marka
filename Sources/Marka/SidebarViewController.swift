@@ -4,12 +4,20 @@ import AppKit
 final class SidebarViewController: NSViewController {
     let outline = OutlineViewController()
     let fileTree = FileTreeViewController()
+    let search = SearchViewController()
+
+    var rootURL: URL? {
+        didSet {
+            fileTree.rootURL = rootURL
+            search.rootURL = rootURL
+        }
+    }
     private var picker: NSSegmentedControl!
     private var container: NSView!
 
     override func loadView() {
         let picker = NSSegmentedControl(
-            labels: ["Outline", "Files"],
+            labels: ["Outline", "Files", "Search"],
             trackingMode: .selectOne,
             target: self,
             action: #selector(paneChanged)
@@ -46,14 +54,24 @@ final class SidebarViewController: NSViewController {
 
         addChild(outline)
         addChild(fileTree)
-        let savedPane = UserDefaults.standard.string(forKey: Self.paneKey)
-        let wantsFiles = ProcessInfo.processInfo.environment["MARKA_SIDEBAR"] == "files" || savedPane == "files"
-        if wantsFiles {
+        addChild(search)
+        let savedPane = ProcessInfo.processInfo.environment["MARKA_SIDEBAR"] ?? UserDefaults.standard.string(forKey: Self.paneKey)
+        switch savedPane {
+        case "files":
             picker.selectedSegment = 1
             show(fileTree)
-        } else {
+        case "search":
+            picker.selectedSegment = 2
+            show(search)
+        default:
             show(outline)
         }
+    }
+
+    func showSearch() {
+        picker.selectedSegment = 2
+        paneChanged()
+        search.focus()
     }
 
     private static let paneKey = "MarkaSidebarPane"
@@ -63,13 +81,16 @@ final class SidebarViewController: NSViewController {
     }
 
     @objc private func paneChanged() {
-        if picker.selectedSegment == 0 {
-            show(outline)
-        } else {
+        switch picker.selectedSegment {
+        case 1:
             fileTree.reload()
             show(fileTree)
+        case 2:
+            show(search)
+        default:
+            show(outline)
         }
-        UserDefaults.standard.set(picker.selectedSegment == 0 ? "outline" : "files", forKey: Self.paneKey)
+        UserDefaults.standard.set(["outline", "files", "search"][picker.selectedSegment], forKey: Self.paneKey)
     }
 
     private func show(_ child: NSViewController) {

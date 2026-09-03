@@ -14,7 +14,7 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
         }
     }
 
-    private static let fileExtensions: Set<String> = ["md", "markdown", "txt"]
+    private static let fileExtensions = ProjectFiles.extensions
 
     var rootURL: URL? {
         didSet {
