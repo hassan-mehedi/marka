@@ -28,7 +28,12 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
     ) {
         guard editedMask.contains(.editedCharacters) else { return }
         pendingEditedRange = pendingEditedRange.map { NSUnionRange($0, editedRange) } ?? editedRange
+        pendingEditStart = min(pendingEditStart ?? editedRange.location, editedRange.location)
+        pendingDelta += delta
     }
+
+    private var pendingEditStart: Int?
+    private var pendingDelta = 0
 
     func highlightAll() {
         guard let storage = textView.textStorage else { return }
@@ -39,6 +44,8 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
         codeTokenCache.removeAll()
         restyle(paragraphsIn: NSRange(location: 0, length: storage.length), storage: storage)
         pendingEditedRange = nil
+        pendingEditStart = nil
+        pendingDelta = 0
         previousSelection = textView.selectedRange()
     }
 
@@ -48,19 +55,50 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
         let newMathBlocks = MarkdownParser.mathBlocks(in: storage.string, excluding: newFences)
         let newTables = MarkdownParser.tables(in: storage.string, excluding: newFences)
         let newFrontMatter = MarkdownParser.frontMatterRange(in: storage.string)
-        let tableRangesChanged = newTables.map(\.fullRange) != tables.map(\.fullRange)
+
+        // Typing shifts every block after the caret; only a change in the
+        // block structure itself needs the whole document restyled.
+        let edit = (start: pendingEditStart ?? 0, delta: pendingDelta)
+        let structureChanged = !Self.sameStructure(old: fences, new: newFences, edit: edit)
+            || newMathBlocks.map(\.fullRange) != mathBlocks.map { Self.shift($0.fullRange, by: edit) }
+            || newTables.map(\.fullRange) != tables.map { Self.shift($0.fullRange, by: edit) }
+            || newFrontMatter != frontMatter.map { Self.shift($0, by: edit) }
+        fences = newFences
+        mathBlocks = newMathBlocks
         tables = newTables
-        if newFences != fences || newMathBlocks != mathBlocks || newFrontMatter != frontMatter || tableRangesChanged {
-            fences = newFences
-            mathBlocks = newMathBlocks
-            frontMatter = newFrontMatter
+        frontMatter = newFrontMatter
+        if structureChanged {
             codeTokenCache.removeAll()
             restyle(paragraphsIn: NSRange(location: 0, length: storage.length), storage: storage)
         } else if let edited = pendingEditedRange {
             restyle(paragraphsIn: edited, storage: storage)
         }
         pendingEditedRange = nil
+        pendingEditStart = nil
+        pendingDelta = 0
         previousSelection = textView.selectedRange()
+    }
+
+    static func shift(_ range: NSRange, by edit: (start: Int, delta: Int)) -> NSRange {
+        if range.location >= edit.start {
+            return NSRange(location: range.location + edit.delta, length: range.length)
+        }
+        if NSMaxRange(range) >= edit.start {
+            return NSRange(location: range.location, length: max(range.length + edit.delta, 0))
+        }
+        return range
+    }
+
+    static func sameStructure(old: FenceInfo, new: FenceInfo, edit: (start: Int, delta: Int)) -> Bool {
+        guard old.blocks.count == new.blocks.count, old.delimiterLines.count == new.delimiterLines.count else { return false }
+        for (oldBlock, newBlock) in zip(old.blocks, new.blocks) {
+            guard oldBlock.language == newBlock.language,
+                  shift(oldBlock.range, by: edit) == newBlock.range,
+                  shift(oldBlock.openDelimiter, by: edit) == newBlock.openDelimiter,
+                  oldBlock.closeDelimiter.map { shift($0, by: edit) } == newBlock.closeDelimiter
+            else { return false }
+        }
+        return true
     }
 
     func handleSelectionChange() {

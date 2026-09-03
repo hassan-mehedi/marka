@@ -72,3 +72,17 @@ private func displayString(_ editor: EditorViewController, paragraph: NSRange) -
     editor.textViewDidChangeSelection(Notification(name: NSTextView.didChangeSelectionNotification))
     #expect(editor.textView.selectedRange() == NSRange(location: 6, length: 0))
 }
+
+@Test @MainActor func editsBeforeAFenceKeepTheStructureEqual() {
+    let before = "intro\n\n```swift\nlet a = 1\n```\n"
+    let after = "intro!\n\n```swift\nlet a = 1\n```\n"
+    let old = MarkdownParser.fences(in: before)
+    let new = MarkdownParser.fences(in: after)
+    #expect(MarkdownHighlighter.sameStructure(old: old, new: new, edit: (start: 5, delta: 1)))
+    #expect(!MarkdownHighlighter.sameStructure(old: old, new: new, edit: (start: 5, delta: 0)))
+
+    let inside = MarkdownParser.fences(in: "intro\n\n```swift\nlet ab = 1\n```\n")
+    #expect(MarkdownHighlighter.sameStructure(old: old, new: inside, edit: (start: 20, delta: 1)))
+    #expect(MarkdownHighlighter.shift(NSRange(location: 10, length: 5), by: (start: 12, delta: 2)) == NSRange(location: 10, length: 7))
+    #expect(MarkdownHighlighter.shift(NSRange(location: 10, length: 5), by: (start: 3, delta: -2)) == NSRange(location: 8, length: 5))
+}

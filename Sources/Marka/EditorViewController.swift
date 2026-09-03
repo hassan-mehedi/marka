@@ -49,6 +49,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
     private var tableImageCache: [String: NSImage] = [:]
     private var layoutWidth: CGFloat = 0
     private var pendingWidthRefresh: DispatchWorkItem?
+    private var pendingDerivedUpdate: DispatchWorkItem?
     private(set) var highlighter: MarkdownHighlighter!
     private var statusLabel: NSTextField!
     private var typewriterMode = false
@@ -219,10 +220,21 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
     func textDidChange(_ notification: Notification) {
         highlighter.handleEdit()
         document?.updateChangeCount(.changeDone)
-        updateWordCount()
-        updateOutline()
+        scheduleDerivedStateUpdate()
         recenterCaret()
         offerCompletionsIfNeeded()
+    }
+
+    // Word count and outline read the whole document, so they trail typing
+    // by a moment instead of running on every keystroke.
+    private func scheduleDerivedStateUpdate() {
+        pendingDerivedUpdate?.cancel()
+        let update = DispatchWorkItem { [weak self] in
+            self?.updateWordCount()
+            self?.updateOutline()
+        }
+        pendingDerivedUpdate = update
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: update)
     }
 
     // Emoji shortcodes and fence languages pop the completion list up as you
