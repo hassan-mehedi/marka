@@ -17,8 +17,8 @@ import Testing
     controller.loadView()
     controller.rootURL = root
 
-    let outline = try #require(controller.view.subviews.compactMap { $0 as? NSOutlineView }.first
-        ?? (controller.view as? NSScrollView)?.documentView as? NSOutlineView)
+    let outlines = controller.view.subviews.compactMap { ($0 as? NSScrollView)?.documentView as? NSOutlineView }
+    let outline = try #require(outlines.first)
     #expect(outline.numberOfRows == 3)
 
     let names = (0..<outline.numberOfRows).compactMap {

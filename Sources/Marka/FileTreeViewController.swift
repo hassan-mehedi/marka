@@ -52,15 +52,23 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
         placeholder.textColor = .secondaryLabelColor
         placeholder.alignment = .center
         placeholder.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.addSubview(placeholder)
-        NSLayoutConstraint.activate([
-            placeholder.centerXAnchor.constraint(equalTo: scrollView.centerXAnchor),
-            placeholder.topAnchor.constraint(equalTo: scrollView.topAnchor, constant: 20),
-            placeholder.widthAnchor.constraint(lessThanOrEqualTo: scrollView.widthAnchor, constant: -24),
-        ])
         self.placeholder = placeholder
 
-        view = scrollView
+        let container = NSView(frame: scrollView.frame)
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(scrollView)
+        container.addSubview(placeholder)
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: container.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            placeholder.topAnchor.constraint(equalTo: container.topAnchor, constant: 20),
+            placeholder.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            placeholder.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+        ])
+
+        view = container
         reload()
     }
 
