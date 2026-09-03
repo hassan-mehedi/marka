@@ -10,6 +10,10 @@ permissions:
 jobs:
   release:
     runs-on: macos-26
+    env:
+      # Set these repository secrets to ship a Developer ID signed, notarized
+      # build. Without them the release is ad-hoc signed like a local build.
+      HAS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12 != '' }}
     steps:
       - uses: actions/checkout@v4
       - name: Select newest Xcode
@@ -18,7 +22,31 @@ jobs:
           swift --version
       - name: Test
         run: swift test
+      - name: Import signing certificate
+        if: env.HAS_CERTIFICATE == 'true'
+        env:
+          CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+          echo "$CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/certificate.p12" -P "$CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | grep -o '"Developer ID Application[^"]*"' | head -1 | tr -d '"')"
+          test -n "$IDENTITY"
+          echo "MARKA_SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          rm "$RUNNER_TEMP/certificate.p12"
       - name: Build dmgs
+        env:
+          MARKA_APPLE_ID: ${{ secrets.APPLE_ID }}
+          MARKA_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          MARKA_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           scripts/make-dmg.sh "$GITHUB_REF_NAME" arm64
           scripts/make-dmg.sh "$GITHUB_REF_NAME" x86_64

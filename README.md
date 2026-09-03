@@ -53,13 +53,15 @@ Download the dmg for your Mac from the
 `arm64` for Apple Silicon, `x86_64` for Intel. Drag Marka.app into
 Applications.
 
-The app is ad-hoc signed, not notarized, so the first launch is blocked
-with "Marka is damaged" or "unidentified developer". Clear the quarantine
-flag once and it opens normally:
+Releases built without a Developer ID are ad-hoc signed, not notarized,
+so the first launch is blocked with "Marka is damaged" or "unidentified
+developer". Clear the quarantine flag once and it opens normally:
 
 ```sh
 xattr -d com.apple.quarantine /Applications/Marka.app
 ```
+
+Notarized releases open without that step. See Releasing below.
 
 ## Requirements
 
@@ -99,6 +101,27 @@ sample document first, `MARKA_SIDEBAR=files` opens the file tree pane,
 captures the window frame including the title bar, `MARKA_SNAPSHOT_SETTINGS=1`
 and `MARKA_SNAPSHOT_QUICKOPEN=1` open those panels, and
 `MARKA_SNAPSHOT_SEARCH=<query>` runs a folder search in the sidebar.
+
+## Releasing
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which tests,
+builds both dmgs, and publishes a GitHub release. With these repository
+secrets set, the build is Developer ID signed with the hardened runtime,
+notarized, and stapled:
+
+| Secret | Value |
+| --- | --- |
+| `MACOS_CERTIFICATE_P12` | base64 of a "Developer ID Application" .p12 export |
+| `MACOS_CERTIFICATE_PASSWORD` | password chosen when exporting the .p12 |
+| `APPLE_ID` | Apple ID email of the developer account |
+| `APPLE_TEAM_ID` | 10-character team id |
+| `APPLE_APP_PASSWORD` | app-specific password from appleid.apple.com |
+
+Export the certificate from Keychain Access and encode it with
+`base64 -i cert.p12 | pbcopy`. Locally, `MARKA_SIGN_IDENTITY="Developer ID
+Application: Name (TEAMID)" scripts/make-dmg.sh v1.2.3 arm64` does the same
+signing; add `MARKA_APPLE_ID`, `MARKA_TEAM_ID`, and `MARKA_APP_PASSWORD` to
+notarize.
 
 ## How it works
 

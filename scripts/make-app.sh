@@ -38,7 +38,14 @@ for pair in "16 16x16" "32 16x16@2x" "32 32x32" "64 32x32@2x" "128 128x128" "256
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/Marka.icns"
 
-# Ad-hoc signature: without it macOS refuses to launch an unsigned bundle.
-codesign --force --sign - "$APP" >/dev/null 2>&1 || echo "warning: codesign failed, app may not launch"
+# With MARKA_SIGN_IDENTITY set (a "Developer ID Application" certificate),
+# sign for distribution with the hardened runtime. Otherwise sign ad hoc,
+# which is enough to launch locally.
+if [ -n "${MARKA_SIGN_IDENTITY:-}" ]; then
+    codesign --force --timestamp --options runtime --sign "$MARKA_SIGN_IDENTITY" "$APP"
+    codesign --verify --strict "$APP"
+else
+    codesign --force --sign - "$APP" >/dev/null 2>&1 || echo "warning: codesign failed, app may not launch"
+fi
 
 echo "built $APP"
