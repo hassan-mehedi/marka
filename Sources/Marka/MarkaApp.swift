@@ -152,6 +152,13 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         let typewriterToggle = viewMenu.addItem(withTitle: "Typewriter Mode", action: #selector(EditorViewController.toggleTypewriterMode(_:)), keyEquivalent: "t")
         typewriterToggle.keyEquivalentModifierMask = [.command, .shift]
         viewMenu.addItem(.separator())
+        let zoomIn = viewMenu.addItem(withTitle: "Zoom In", action: #selector(zoomIn(_:)), keyEquivalent: "=")
+        zoomIn.keyEquivalentModifierMask = [.command, .shift]
+        let zoomOut = viewMenu.addItem(withTitle: "Zoom Out", action: #selector(zoomOut(_:)), keyEquivalent: "-")
+        zoomOut.keyEquivalentModifierMask = [.command, .shift]
+        let actualSize = viewMenu.addItem(withTitle: "Actual Size", action: #selector(actualSize(_:)), keyEquivalent: "0")
+        actualSize.keyEquivalentModifierMask = [.command, .shift]
+        viewMenu.addItem(.separator())
         let themeItem = viewMenu.addItem(withTitle: "Theme", action: nil, keyEquivalent: "")
         themeItem.submenu = makeThemeMenu()
         viewMenuItem.submenu = viewMenu
@@ -176,6 +183,28 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         }
         let paragraphItem = formatMenu.addItem(withTitle: "Paragraph", action: #selector(EditorViewController.applyHeading(_:)), keyEquivalent: "0")
         paragraphItem.tag = 0
+        formatMenu.addItem(.separator())
+        let blockItems: [(String, Selector, String)] = [
+            ("Bullet List", #selector(EditorViewController.toggleBulletList(_:)), "u"),
+            ("Numbered List", #selector(EditorViewController.toggleOrderedList(_:)), "o"),
+            ("Task List", #selector(EditorViewController.toggleTaskList(_:)), "x"),
+            ("Blockquote", #selector(EditorViewController.toggleBlockquote(_:)), "q"),
+        ]
+        for (title, action, key) in blockItems {
+            formatMenu.addItem(withTitle: title, action: action, keyEquivalent: key).keyEquivalentModifierMask = [.command, .option]
+        }
+        formatMenu.addItem(.separator())
+        let insertItems: [(String, Selector, String)] = [
+            ("Code Fence", #selector(EditorViewController.insertCodeFence(_:)), "c"),
+            ("Math Block", #selector(EditorViewController.insertMathBlock(_:)), "b"),
+            ("Table…", #selector(EditorViewController.insertTable(_:)), "t"),
+            ("Image…", #selector(EditorViewController.insertImage(_:)), "i"),
+            ("Footnote", #selector(EditorViewController.insertFootnote(_:)), ""),
+            ("Horizontal Rule", #selector(EditorViewController.insertHorizontalRule(_:)), ""),
+        ]
+        for (title, action, key) in insertItems {
+            formatMenu.addItem(withTitle: title, action: action, keyEquivalent: key).keyEquivalentModifierMask = [.command, .option]
+        }
         formatMenu.addItem(.separator())
         let smartItem = formatMenu.addItem(
             withTitle: "Smart Punctuation",
@@ -205,6 +234,18 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         ThemeManager.shared.select(named: name)
     }
 
+    @objc private func zoomIn(_ sender: Any?) {
+        ThemeManager.shared.setFontScale(ThemeManager.shared.fontScale + 0.1)
+    }
+
+    @objc private func zoomOut(_ sender: Any?) {
+        ThemeManager.shared.setFontScale(ThemeManager.shared.fontScale - 0.1)
+    }
+
+    @objc private func actualSize(_ sender: Any?) {
+        ThemeManager.shared.setFontScale(1)
+    }
+
     @objc private func openThemesFolder(_ sender: NSMenuItem) {
         let directory = ThemeManager.userThemesDirectory
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -215,7 +256,7 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
 extension MarkaApp: NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(selectTheme(_:)), let name = menuItem.representedObject as? String {
-            menuItem.state = name == ThemeManager.shared.current.name ? .on : .off
+            menuItem.state = name == ThemeManager.shared.baseTheme.name ? .on : .off
         }
         return true
     }

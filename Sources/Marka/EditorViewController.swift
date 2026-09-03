@@ -466,7 +466,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         }
     }
 
-    private func currentParagraph() -> (range: NSRange, line: String)? {
+    func currentParagraph() -> (range: NSRange, line: String)? {
         let ns = textView.string as NSString
         let selection = textView.selectedRange()
         guard selection.location != NSNotFound else { return nil }
@@ -572,20 +572,20 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         )
     }
 
-    private func effectiveSelection() -> NSRange {
+    func effectiveSelection() -> NSRange {
         let selection = textView.selectedRange()
         guard selection.length == 0 else { return selection }
         return textView.selectionRange(forProposedRange: selection, granularity: .selectByWord)
     }
 
-    private func replace(_ range: NSRange, with string: String, thenSelect newSelection: NSRange) {
+    func replace(_ range: NSRange, with string: String, thenSelect newSelection: NSRange) {
         guard textView.shouldChangeText(in: range, replacementString: string) else { return }
         textView.textStorage?.replaceCharacters(in: range, with: string)
         textView.didChangeText()
         textView.setSelectedRange(newSelection)
     }
 
-    private func replaceKeepingCaret(_ range: NSRange, with string: String) {
+    func replaceKeepingCaret(_ range: NSRange, with string: String) {
         guard textView.shouldChangeText(in: range, replacementString: string) else { return }
         let selection = textView.selectedRange()
         textView.textStorage?.replaceCharacters(in: range, with: string)
