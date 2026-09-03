@@ -10,8 +10,14 @@ final class BlockBackgroundLayoutFragment: NSTextLayoutFragment {
 
     private static let radius: CGFloat = 6
 
+    // When the closing fence is the document's last paragraph, TextKit appends
+    // the trailing empty line to this fragment; leave that line unpainted.
     private var backgroundRect: CGRect {
-        CGRect(x: -layoutFragmentFrame.minX, y: 0, width: containerWidth, height: layoutFragmentFrame.height)
+        var height = layoutFragmentFrame.height
+        if roundsBottom, textLineFragments.count > 1, let last = textLineFragments.last {
+            height -= last.typographicBounds.height
+        }
+        return CGRect(x: -layoutFragmentFrame.minX, y: 0, width: containerWidth, height: height)
     }
 
     override var renderingSurfaceBounds: CGRect {

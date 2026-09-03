@@ -4,6 +4,19 @@ import UniformTypeIdentifiers
 @MainActor
 final class MarkaTextView: NSTextView {
     var onPasteImage: ((Data) -> Bool)?
+    // The delegate supplies completions; the completed range grows to include
+    // the ":" that opened an emoji shortcode or the fence backticks.
+    var completionRange: ((NSRange) -> NSRange)?
+
+    override var rangeForUserCompletion: NSRange {
+        let base = super.rangeForUserCompletion
+        return completionRange?(base) ?? base
+    }
+
+    override func insertCompletion(_ word: String, forPartialWordRange charRange: NSRange, movement: Int, isFinal flag: Bool) {
+        let text = flag ? Completions.insertion(for: word) : word
+        super.insertCompletion(text, forPartialWordRange: charRange, movement: movement, isFinal: flag)
+    }
     // Returns false when the caret sits somewhere HTML must stay literal.
     var acceptsMarkdownPaste: (() -> Bool)?
 

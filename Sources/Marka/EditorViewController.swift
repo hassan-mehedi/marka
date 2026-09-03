@@ -94,6 +94,9 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         textView.onPasteImage = { [weak self] data in
             self?.insertPastedImage(data) ?? false
         }
+        textView.completionRange = { [weak self] base in
+            self?.completionRange(extending: base) ?? base
+        }
         textView.acceptsMarkdownPaste = { [weak self] in
             guard let self else { return true }
             return !isLiteralContext(at: textView.selectedRange().location)
@@ -219,6 +222,56 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         updateWordCount()
         updateOutline()
         recenterCaret()
+        offerCompletionsIfNeeded()
+    }
+
+    // Emoji shortcodes and fence languages pop the completion list up as you
+    // type; everything else keeps the standard Esc-to-complete behaviour.
+    private func offerCompletionsIfNeeded() {
+        guard textView.selectedRange().length == 0, !suppressCompletion else { return }
+        let range = textView.rangeForUserCompletion
+        guard range.location != NSNotFound, range.length > 0 else { return }
+        let partial = (textView.string as NSString).substring(with: range)
+        if partial.hasPrefix(":"), partial.count >= 3, !partial.hasSuffix(":") {
+            textView.complete(nil)
+        } else if partial.hasPrefix("```"), partial.count >= 4 {
+            textView.complete(nil)
+        }
+    }
+
+    private var suppressCompletion: Bool {
+        NSApp.currentEvent.map { $0.type == .keyDown && ($0.keyCode == 51 || $0.keyCode == 117) } ?? false
+    }
+
+    private func completionRange(extending base: NSRange) -> NSRange {
+        let ns = textView.string as NSString
+        let caret = textView.selectedRange().location
+        let lineRange = ns.paragraphRange(for: NSRange(location: caret, length: 0))
+        let start = base.location == NSNotFound ? caret : base.location
+        let line = ns.substring(with: NSRange(location: lineRange.location, length: caret - lineRange.location))
+        if line.hasPrefix("```"), !line.contains(" ") {
+            return NSRange(location: lineRange.location, length: caret - lineRange.location)
+        }
+        if start > lineRange.location, ns.character(at: start - 1) == 0x3A {
+            return NSRange(location: start - 1, length: caret - start + 1)
+        }
+        return base
+    }
+
+    func textView(
+        _ textView: NSTextView,
+        completions words: [String],
+        forPartialWordRange charRange: NSRange,
+        indexOfSelectedItem index: UnsafeMutablePointer<Int>?
+    ) -> [String] {
+        let partial = (textView.string as NSString).substring(with: charRange)
+        if partial.hasPrefix("```") {
+            return Completions.languages(matching: String(partial.dropFirst(3))).map { "```" + $0 }
+        }
+        if partial.hasPrefix(":") {
+            return Completions.emoji(matching: String(partial.dropFirst()))
+        }
+        return words
     }
 
     @objc func toggleSourceMode(_ sender: NSMenuItem) {

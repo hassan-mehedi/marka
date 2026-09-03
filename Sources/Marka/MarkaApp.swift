@@ -42,8 +42,17 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
                let split = NSApp.keyWindow?.contentViewController as? NSSplitViewController,
                let editor = split.splitViewItems.last?.viewController as? EditorViewController {
                 editor.jump(to: caret)
+                if let typed = environment["MARKA_SNAPSHOT_TYPE"] {
+                    editor.textView.insertText(typed, replacementRange: editor.textView.selectedRange())
+                }
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            let delay = environment["MARKA_SNAPSHOT_DELAY"].flatMap(Double.init) ?? 0.5
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                if environment["MARKA_SNAPSHOT_WINDOWS"] != nil {
+                    for window in NSApp.windows where window.isVisible {
+                        FileHandle.standardError.write(Data("window: \(type(of: window)) \(window.frame)\n".utf8))
+                    }
+                }
                 if let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible && $0.contentViewController != nil }) {
                     Self.writeSnapshot(of: window, to: snapshotPath, wholeWindow: environment["MARKA_SNAPSHOT_FRAME"] != nil)
                 }

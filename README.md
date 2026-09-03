@@ -32,6 +32,8 @@ Swift, AppKit, TextKit 2. No Electron, no web view for the editor itself.
   images, math blocks, footnotes, and rules. Inside a table, Tab moves
   between cells, Return adds a row, and Format > Table adds, moves, aligns,
   and deletes rows and columns.
+- Type `:smi` for an emoji picker or three backticks plus a few letters for
+  a language picker; Return accepts, Esc dismisses.
 - Pasting HTML from a browser or word processor converts it to Markdown;
   Paste as Plain Text and Copy as HTML sit in the Edit menu.
 - Settings (Cmd+,) for editor and code fonts, maximum line width, the image
