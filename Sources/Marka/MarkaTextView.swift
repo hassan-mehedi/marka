@@ -4,12 +4,32 @@ import UniformTypeIdentifiers
 @MainActor
 final class MarkaTextView: NSTextView {
     var onPasteImage: ((Data) -> Bool)?
+    // Returns false when the caret sits somewhere HTML must stay literal.
+    var acceptsMarkdownPaste: (() -> Bool)?
 
     override func paste(_ sender: Any?) {
         if let data = Self.imageData(from: .general), onPasteImage?(data) == true {
             return
         }
+        if let markdown = Self.markdown(from: .general), acceptsMarkdownPaste?() ?? true {
+            insertText(markdown, replacementRange: selectedRange())
+            return
+        }
         super.paste(sender)
+    }
+
+    // Rich clipboard content converted to Markdown. Text copied from a plain
+    // editor carries no HTML and passes through untouched.
+    static func markdown(from pasteboard: NSPasteboard) -> String? {
+        guard pasteboard.availableType(from: [.html]) != nil,
+              let html = pasteboard.string(forType: .html) else { return nil }
+        let markdown = HTMLToMarkdown.markdown(from: html)
+        guard !markdown.isEmpty else { return nil }
+        if let plain = pasteboard.string(forType: .string),
+           plain.trimmingCharacters(in: .whitespacesAndNewlines) == markdown {
+            return nil
+        }
+        return markdown
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {

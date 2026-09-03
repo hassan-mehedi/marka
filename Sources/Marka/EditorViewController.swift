@@ -93,6 +93,10 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         textView.onPasteImage = { [weak self] data in
             self?.insertPastedImage(data) ?? false
         }
+        textView.acceptsMarkdownPaste = { [weak self] in
+            guard let self else { return true }
+            return !isLiteralContext(at: textView.selectedRange().location)
+        }
         self.textView = textView
 
         let scrollView = NSScrollView()
@@ -641,6 +645,15 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         guard let image = NSImage(contentsOf: url) else { return nil }
         imageCache[path] = image
         return image
+    }
+
+    @objc func copyAsHTML(_ sender: Any?) {
+        let selection = textView.selectedRange()
+        let source = selection.length > 0 ? (textView.string as NSString).substring(with: selection) : textView.string
+        let html = HTMLExporter.fragment(from: source)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(html, forType: .string)
     }
 
     @objc func exportHTML(_ sender: Any?) {

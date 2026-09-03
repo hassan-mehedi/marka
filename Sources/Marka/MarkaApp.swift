@@ -118,6 +118,10 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        let plainPaste = editMenu.addItem(withTitle: "Paste as Plain Text", action: #selector(NSTextView.pasteAsPlainText(_:)), keyEquivalent: "v")
+        plainPaste.keyEquivalentModifierMask = [.command, .shift]
+        let copyHTML = editMenu.addItem(withTitle: "Copy as HTML", action: #selector(EditorViewController.copyAsHTML(_:)), keyEquivalent: "c")
+        copyHTML.keyEquivalentModifierMask = [.command, .shift]
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editMenu.addItem(.separator())
         let findItem = editMenu.addItem(withTitle: "Find", action: nil, keyEquivalent: "")

@@ -24,3 +24,22 @@ import Testing
     pasteboard.setString("plain text", forType: .string)
     #expect(!MarkaTextView.hasImage(pasteboard))
 }
+
+@Test @MainActor func pasteboardHTMLConvertsToMarkdownUnlessPlainTextMatches() {
+    let pasteboard = NSPasteboard(name: .init("marka-test-\(UUID().uuidString)"))
+    defer { pasteboard.releaseGlobally() }
+
+    pasteboard.clearContents()
+    pasteboard.setString("<p>Hello <b>there</b></p>", forType: .html)
+    pasteboard.setString("Hello there", forType: .string)
+    #expect(MarkaTextView.markdown(from: pasteboard) == "Hello **there**")
+
+    pasteboard.clearContents()
+    pasteboard.setString("<pre>plain</pre>", forType: .html)
+    pasteboard.setString("plain", forType: .string)
+    #expect(MarkaTextView.markdown(from: pasteboard) == "```\nplain\n```")
+
+    pasteboard.clearContents()
+    pasteboard.setString("only text", forType: .string)
+    #expect(MarkaTextView.markdown(from: pasteboard) == nil)
+}
