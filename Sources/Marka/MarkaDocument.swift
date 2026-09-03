@@ -27,7 +27,7 @@ final class MarkaDocument: NSDocument {
     nonisolated override class var readableTypes: [String] { [markdownType, plainTextType] }
     nonisolated override class var writableTypes: [String] { [markdownType, plainTextType] }
     nonisolated override class func isNativeType(_ type: String) -> Bool { true }
-    nonisolated override class var autosavesInPlace: Bool { false }
+    nonisolated override class var autosavesInPlace: Bool { Preferences.autosaveEnabled }
 
     var text: String {
         editor?.text ?? loadedText

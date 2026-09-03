@@ -27,6 +27,9 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
                 documentController.newDocument(nil)
                 front?.makeKeyAndOrderFront(nil)
             }
+            if environment["MARKA_SNAPSHOT_SETTINGS"] != nil {
+                PreferencesWindowController.shared.showWindow(nil)
+            }
             if let caret = environment["MARKA_SNAPSHOT_CARET"].flatMap(Int.init),
                let split = NSApp.keyWindow?.contentViewController as? NSSplitViewController,
                let editor = split.splitViewItems.last?.viewController as? EditorViewController {
@@ -73,6 +76,8 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
 
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "Settings…", action: #selector(showSettings(_:)), keyEquivalent: ",")
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Quit Marka", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
@@ -213,12 +218,11 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         let tableItem = formatMenu.addItem(withTitle: "Table", action: nil, keyEquivalent: "")
         tableItem.submenu = makeTableMenu()
         formatMenu.addItem(.separator())
-        let smartItem = formatMenu.addItem(
+        formatMenu.addItem(
             withTitle: "Smart Punctuation",
             action: #selector(EditorViewController.toggleSmartPunctuation(_:)),
             keyEquivalent: ""
         )
-        smartItem.state = UserDefaults.standard.bool(forKey: "MarkaSmartPunctuation") ? .on : .off
         formatMenuItem.submenu = formatMenu
         mainMenu.addItem(formatMenuItem)
 
@@ -277,6 +281,10 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
     @objc private func selectTheme(_ sender: NSMenuItem) {
         guard let name = sender.representedObject as? String else { return }
         ThemeManager.shared.select(named: name)
+    }
+
+    @objc private func showSettings(_ sender: Any?) {
+        PreferencesWindowController.shared.showWindow(sender)
     }
 
     @objc private func zoomIn(_ sender: Any?) {

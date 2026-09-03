@@ -11,12 +11,14 @@ final class ThemeManager {
     private(set) var baseTheme: Theme
     private(set) var fontScale: Double
 
-    // The selected theme with fonts multiplied by the zoom level.
+    // The selected theme with the user's font choices applied and sizes
+    // multiplied by the zoom level.
     var current: Theme {
-        guard fontScale != 1 else { return baseTheme }
-        var scaled = baseTheme
-        scaled.baseFontSize = (baseTheme.baseFontSize * fontScale).rounded()
-        scaled.codeFontSize = (baseTheme.codeFontSize * fontScale).rounded()
+        let themed = Preferences.shared.apply(to: baseTheme)
+        guard fontScale != 1 else { return themed }
+        var scaled = themed
+        scaled.baseFontSize = (themed.baseFontSize * fontScale).rounded()
+        scaled.codeFontSize = (themed.codeFontSize * fontScale).rounded()
         return scaled
     }
 
@@ -30,6 +32,13 @@ final class ThemeManager {
         baseTheme = available.first { $0.name == saved } ?? .systemTheme
         let savedScale = UserDefaults.standard.double(forKey: Self.scaleKey)
         fontScale = Self.scaleSteps.contains(savedScale) ? savedScale : 1
+        NotificationCenter.default.addObserver(
+            forName: Preferences.didChange, object: nil, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                NotificationCenter.default.post(name: Self.didChange, object: nil)
+            }
+        }
     }
 
     func select(named name: String) {

@@ -25,6 +25,15 @@ Swift, AppKit, TextKit 2. No Electron, no web view for the editor itself.
   LaTeX go through pandoc (`brew install pandoc`); the rest is native.
 - Themes: Default, GitHub, GitHub Dark, Dracula, One Dark Pro, Night, and
   Newsprint built in, plus JSON user themes in `~/Library/Application Support/Marka/Themes/`.
+- Format menu covers lists, task lists, blockquotes, code fences, tables,
+  images, math blocks, footnotes, and rules. Inside a table, Tab moves
+  between cells, Return adds a row, and Format > Table adds, moves, aligns,
+  and deletes rows and columns.
+- Pasting HTML from a browser or word processor converts it to Markdown;
+  Paste as Plain Text and Copy as HTML sit in the Edit menu.
+- Settings (Cmd+,) for editor and code fonts, maximum line width, the image
+  folder, spell check, autocorrect, and autosave. Zoom with Cmd+Shift+= and
+  Cmd+Shift+-.
 - Sidebar with outline and file tree panes, source mode, focus mode,
   typewriter mode, smart punctuation, native find and replace, word count
   with a stats popover.

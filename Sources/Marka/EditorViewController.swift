@@ -149,10 +149,24 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         refreshDisplayParagraphs()
     }
 
+    // Centers the text column when a maximum line width is set.
+    private func applyLineWidth() {
+        let maxWidth = Preferences.shared.lineWidth
+        let available = textView.bounds.width
+        var horizontal: CGFloat = 28
+        if maxWidth > 0, available - 2 * horizontal > maxWidth {
+            horizontal = ((available - maxWidth) / 2).rounded()
+        }
+        let inset = NSSize(width: horizontal, height: 24)
+        guard textView.textContainerInset != inset else { return }
+        textView.textContainerInset = inset
+    }
+
     // Table images are laid out for the current width, so rebuild them once
     // a resize settles.
     override func viewDidLayout() {
         super.viewDidLayout()
+        applyLineWidth()
         let width = textView.bounds.width
         guard width != layoutWidth else { return }
         let firstLayout = layoutWidth == 0
@@ -177,7 +191,13 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
 
     private func applyTheme() {
         let theme = ThemeManager.shared.current
+        let preferences = Preferences.shared
         textView.font = theme.baseFont
+        textView.isContinuousSpellCheckingEnabled = preferences.spellCheck
+        textView.isGrammarCheckingEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = preferences.autocorrect
+        textView.isAutomaticTextReplacementEnabled = preferences.autocorrect
+        applyLineWidth()
         textView.backgroundColor = theme.resolvedBackground
         (view as? OpaqueBackgroundView)?.color = theme.resolvedBackground
         textView.insertionPointColor = theme.resolvedText
@@ -396,13 +416,10 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         return true
     }
 
-    private static let smartPunctuationKey = "MarkaSmartPunctuation"
-    private var smartPunctuation = UserDefaults.standard.bool(forKey: smartPunctuationKey)
+    private var smartPunctuation: Bool { Preferences.shared.smartPunctuation }
 
     @objc func toggleSmartPunctuation(_ sender: NSMenuItem) {
-        smartPunctuation.toggle()
-        UserDefaults.standard.set(smartPunctuation, forKey: Self.smartPunctuationKey)
-        sender.state = smartPunctuation ? .on : .off
+        Preferences.shared.smartPunctuation.toggle()
     }
 
     private func smartReplacement(for typed: String, at location: Int) -> (range: NSRange, text: String)? {
@@ -605,8 +622,9 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         let name = "image-\(stamp).png"
 
         if let fileURL {
-            directory = fileURL.deletingLastPathComponent().appendingPathComponent("assets")
-            markdownPath = "assets/\(name)"
+            let folder = Preferences.shared.imageFolder
+            directory = fileURL.deletingLastPathComponent().appendingPathComponent(folder)
+            markdownPath = folder.isEmpty || folder == "." ? name : "\(folder)/\(name)"
         } else {
             directory = FileManager.default.temporaryDirectory.appendingPathComponent("MarkaImages")
             markdownPath = directory.appendingPathComponent(name).path
@@ -1096,6 +1114,9 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(performTableCommand(_:)) {
             return tableCommandIsAvailable()
+        }
+        if menuItem.action == #selector(toggleSmartPunctuation(_:)) {
+            menuItem.state = smartPunctuation ? .on : .off
         }
         return true
     }
