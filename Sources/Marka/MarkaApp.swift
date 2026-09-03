@@ -206,6 +206,9 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
             formatMenu.addItem(withTitle: title, action: action, keyEquivalent: key).keyEquivalentModifierMask = [.command, .option]
         }
         formatMenu.addItem(.separator())
+        let tableItem = formatMenu.addItem(withTitle: "Table", action: nil, keyEquivalent: "")
+        tableItem.submenu = makeTableMenu()
+        formatMenu.addItem(.separator())
         let smartItem = formatMenu.addItem(
             withTitle: "Smart Punctuation",
             action: #selector(EditorViewController.toggleSmartPunctuation(_:)),
@@ -216,6 +219,44 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         mainMenu.addItem(formatMenuItem)
 
         return mainMenu
+    }
+
+    private static func makeTableMenu() -> NSMenu {
+        let menu = NSMenu(title: "Table")
+        let groups: [[(String, EditorViewController.TableCommand, String, NSEvent.ModifierFlags)]] = [
+            [
+                ("Add Row Above", .addRowAbove, "", []),
+                ("Add Row Below", .addRowBelow, "\r", [.command]),
+                ("Add Column Left", .addColumnLeft, "", []),
+                ("Add Column Right", .addColumnRight, "", []),
+            ],
+            [
+                ("Move Row Up", .moveRowUp, String(UnicodeScalar(NSUpArrowFunctionKey)!), [.command, .option]),
+                ("Move Row Down", .moveRowDown, String(UnicodeScalar(NSDownArrowFunctionKey)!), [.command, .option]),
+                ("Move Column Left", .moveColumnLeft, String(UnicodeScalar(NSLeftArrowFunctionKey)!), [.command, .option]),
+                ("Move Column Right", .moveColumnRight, String(UnicodeScalar(NSRightArrowFunctionKey)!), [.command, .option]),
+            ],
+            [
+                ("Align Left", .alignLeft, "", []),
+                ("Align Center", .alignCenter, "", []),
+                ("Align Right", .alignRight, "", []),
+            ],
+            [
+                ("Delete Row", .deleteRow, "", []),
+                ("Delete Column", .deleteColumn, "", []),
+                ("Delete Table", .deleteTable, "", []),
+            ],
+            [("Format Table", .formatTable, "", [])],
+        ]
+        for (index, group) in groups.enumerated() {
+            if index > 0 { menu.addItem(.separator()) }
+            for (title, command, key, modifiers) in group {
+                let item = menu.addItem(withTitle: title, action: #selector(EditorViewController.performTableCommand(_:)), keyEquivalent: key)
+                item.tag = command.rawValue
+                item.keyEquivalentModifierMask = modifiers
+            }
+        }
+        return menu
     }
 
     private static func makeThemeMenu() -> NSMenu {

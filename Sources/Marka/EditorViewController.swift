@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class EditorViewController: NSViewController, NSTextViewDelegate, @MainActor NSTextContentStorageDelegate,
-    @MainActor NSTextLayoutManagerDelegate {
+    @MainActor NSTextLayoutManagerDelegate, NSMenuItemValidation {
     func textContentStorage(_ textContentStorage: NSTextContentStorage, textParagraphWith range: NSRange) -> NSTextParagraph? {
         guard let storage = textContentStorage.textStorage else { return nil }
         return displayParagraph(for: range, in: storage)
@@ -48,7 +48,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
     private var tableImageCache: [String: NSImage] = [:]
     private var layoutWidth: CGFloat = 0
     private var pendingWidthRefresh: DispatchWorkItem?
-    private var highlighter: MarkdownHighlighter!
+    private(set) var highlighter: MarkdownHighlighter!
     private var statusLabel: NSTextField!
     private var typewriterMode = false
     var onOutlineChange: (([OutlineItem]) -> Void)?
@@ -456,11 +456,11 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
     func textView(_ view: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         switch commandSelector {
         case #selector(NSResponder.insertNewline(_:)):
-            return continueListOnNewline()
+            return insertTableRowOnReturn() || continueListOnNewline()
         case #selector(NSResponder.insertTab(_:)):
-            return shiftListIndent(outward: false)
+            return moveToNextTableCell(backward: false) || shiftListIndent(outward: false)
         case #selector(NSResponder.insertBacktab(_:)):
-            return shiftListIndent(outward: true)
+            return moveToNextTableCell(backward: true) || shiftListIndent(outward: true)
         default:
             return false
         }
@@ -1078,6 +1078,13 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
             return selection.location >= range.location && selection.location <= NSMaxRange(range)
         }
         return NSIntersectionRange(range, selection).length > 0
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(performTableCommand(_:)) {
+            return tableCommandIsAvailable()
+        }
+        return true
     }
 
     static let sampleDocument = """
