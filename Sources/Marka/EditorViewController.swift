@@ -2,14 +2,52 @@ import AppKit
 import UniformTypeIdentifiers
 
 @MainActor
-final class EditorViewController: NSViewController, NSTextViewDelegate, @MainActor NSTextContentStorageDelegate {
+final class EditorViewController: NSViewController, NSTextViewDelegate, @MainActor NSTextContentStorageDelegate,
+    @MainActor NSTextLayoutManagerDelegate {
     func textContentStorage(_ textContentStorage: NSTextContentStorage, textParagraphWith range: NSRange) -> NSTextParagraph? {
         guard let storage = textContentStorage.textStorage else { return nil }
         return displayParagraph(for: range, in: storage)
     }
 
+    func textLayoutManager(
+        _ textLayoutManager: NSTextLayoutManager,
+        textLayoutFragmentFor location: any NSTextLocation,
+        in textElement: NSTextElement
+    ) -> NSTextLayoutFragment {
+        guard textView != nil, highlighter != nil,
+              let contentStorage = textLayoutManager.textContentManager as? NSTextContentStorage,
+              let corners = codeBlockCorners(at: contentStorage.offset(from: contentStorage.documentRange.location, to: location))
+        else {
+            return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
+        }
+        let fragment = BlockBackgroundLayoutFragment(textElement: textElement, range: textElement.elementRange)
+        fragment.color = ThemeManager.shared.current.resolvedCodeBackground
+        fragment.roundsTop = corners.top
+        fragment.roundsBottom = corners.bottom
+        fragment.containerWidth = textLayoutManager.textContainer?.size.width ?? textView.bounds.width
+        return fragment
+    }
+
+    // Which fenced block, if any, paints behind the paragraph at this offset,
+    // and whether that paragraph is the block's first or last line.
+    private func codeBlockCorners(at offset: Int) -> (top: Bool, bottom: Bool)? {
+        guard let block = highlighter.fences.blocks.first(where: { NSLocationInRange(offset, $0.fullRange) }) else { return nil }
+        if block.language.lowercased() == "mermaid", !selectionTouches(block.fullRange, textView.selectedRange()) {
+            return nil
+        }
+        let ns = textView.string as NSString
+        let paragraph = ns.paragraphRange(for: NSRange(location: min(offset, ns.length), length: 0))
+        let top = NSLocationInRange(block.openDelimiter.location, paragraph)
+        let bottom = block.closeDelimiter.map { NSLocationInRange($0.location, paragraph) }
+            ?? (NSMaxRange(paragraph) >= NSMaxRange(block.range))
+        return (top, bottom)
+    }
+
     private(set) var textView: MarkaTextView!
     private var imageCache: [String: NSImage] = [:]
+    private var tableImageCache: [String: NSImage] = [:]
+    private var layoutWidth: CGFloat = 0
+    private var pendingWidthRefresh: DispatchWorkItem?
     private var highlighter: MarkdownHighlighter!
     private var statusLabel: NSTextField!
     private var typewriterMode = false
@@ -25,6 +63,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
             guard isViewLoaded else { return }
             textView.string = newValue
             imageCache.removeAll()
+            tableImageCache.removeAll()
             reloadDerivedState()
         }
     }
@@ -50,6 +89,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         textView.textContainer?.widthTracksTextView = true
         textView.delegate = self
         textView.textContentStorage?.delegate = self
+        textView.textLayoutManager?.delegate = self
         textView.onPasteImage = { [weak self] data in
             self?.insertPastedImage(data) ?? false
         }
@@ -733,6 +773,14 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
             return math
         }
 
+        if let fence = fenceParagraph(for: range, selection: selection) {
+            return fence
+        }
+
+        if let table = tableParagraph(for: range, newline: hadNewline, selection: selection) {
+            return table
+        }
+
         if MarkdownParser.isTOCLine(line), !selectionTouches(range, selection),
            let toc = tocParagraph(newline: hadNewline) {
             return toc
@@ -894,6 +942,63 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
             return Self.collapsedParagraph()
         }
         return blockParagraph(with: image, centered: true, newline: true)
+    }
+
+    // Outside the caret, a fence shows its language as a small label on the
+    // block's first line and the closing fence shrinks to bottom padding.
+    private func fenceParagraph(for range: NSRange, selection: NSRange) -> NSTextParagraph? {
+        guard !highlighter.revealAllMarkers,
+              let block = highlighter.fences.blocks.first(where: { block in
+                  NSLocationInRange(range.location, block.openDelimiter)
+                      || block.closeDelimiter.map { NSLocationInRange(range.location, $0) } == true
+              }),
+              block.language.lowercased() != "mermaid",
+              !selectionTouches(block.fullRange, selection)
+        else { return nil }
+
+        let style = NSMutableParagraphStyle()
+        style.tailIndent = -12
+        guard NSLocationInRange(range.location, block.openDelimiter) else {
+            style.paragraphSpacingBefore = 10
+            return NSTextParagraph(attributedString: NSAttributedString(
+                string: "\n",
+                attributes: [.font: NSFont.systemFont(ofSize: 0.01), .foregroundColor: NSColor.clear, .paragraphStyle: style]
+            ))
+        }
+        style.alignment = .right
+        style.paragraphSpacingBefore = 6
+        let label = block.language.isEmpty ? "code" : block.language
+        return NSTextParagraph(attributedString: NSAttributedString(
+            string: label + "\n",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+                .foregroundColor: ThemeManager.shared.current.resolvedSecondary,
+                .paragraphStyle: style,
+            ]
+        ))
+    }
+
+    private func tableParagraph(for range: NSRange, newline: Bool, selection: NSRange) -> NSTextParagraph? {
+        guard !highlighter.revealAllMarkers,
+              let table = highlighter.tables.first(where: { NSLocationInRange(range.location, $0.fullRange) }),
+              !selectionTouches(table.fullRange, selection)
+        else { return nil }
+        guard range.location == table.fullRange.location else { return Self.collapsedParagraph() }
+        return blockParagraph(with: tableImage(for: table), centered: false, newline: newline)
+    }
+
+    private func tableImage(for table: TableBlock) -> NSImage {
+        let theme = ThemeManager.shared.current
+        let maxWidth = max(120, textView.bounds.width - textView.textContainerInset.width * 2 - 24)
+        let key = "\(theme.name)|\(Int(maxWidth))|\(table.alignments)|\(table.rows)"
+        if let cached = tableImageCache[key] { return cached }
+        let rows = table.rows.enumerated().map { index, row in
+            row.map { highlighter.inlineStyled($0, bold: index == 0) }
+        }
+        let image = TableRenderer.image(rows: rows, alignments: table.alignments, maxWidth: maxWidth, theme: theme)
+        if tableImageCache.count > 64 { tableImageCache.removeAll() }
+        tableImageCache[key] = image
+        return image
     }
 
     private func tocParagraph(newline: Bool) -> NSTextParagraph? {

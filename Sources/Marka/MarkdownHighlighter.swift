@@ -8,6 +8,8 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
     var focusMode = false
     private(set) var fences = FenceInfo()
     private(set) var mathBlocks: [MathBlock] = []
+    private(set) var tables: [TableBlock] = []
+    private var exporting = false
     private(set) var frontMatter: NSRange?
     private var pendingEditedRange: NSRange?
     private var previousSelection = NSRange(location: 0, length: 0)
@@ -32,6 +34,7 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
         guard let storage = textView.textStorage else { return }
         fences = MarkdownParser.fences(in: storage.string)
         mathBlocks = MarkdownParser.mathBlocks(in: storage.string, excluding: fences)
+        tables = MarkdownParser.tables(in: storage.string, excluding: fences)
         frontMatter = MarkdownParser.frontMatterRange(in: storage.string)
         codeTokenCache.removeAll()
         restyle(paragraphsIn: NSRange(location: 0, length: storage.length), storage: storage)
@@ -43,8 +46,11 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
         guard let storage = textView.textStorage else { return }
         let newFences = MarkdownParser.fences(in: storage.string)
         let newMathBlocks = MarkdownParser.mathBlocks(in: storage.string, excluding: newFences)
+        let newTables = MarkdownParser.tables(in: storage.string, excluding: newFences)
         let newFrontMatter = MarkdownParser.frontMatterRange(in: storage.string)
-        if newFences != fences || newMathBlocks != mathBlocks || newFrontMatter != frontMatter {
+        let tableRangesChanged = newTables.map(\.fullRange) != tables.map(\.fullRange)
+        tables = newTables
+        if newFences != fences || newMathBlocks != mathBlocks || newFrontMatter != frontMatter || tableRangesChanged {
             fences = newFences
             mathBlocks = newMathBlocks
             frontMatter = newFrontMatter
@@ -82,6 +88,9 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
         if let math = mathBlocks.first(where: { touches($0.fullRange, range) }) {
             result = NSUnionRange(result, math.fullRange)
         }
+        if let table = tables.first(where: { touches($0.fullRange, range) }) {
+            result = NSUnionRange(result, table.fullRange)
+        }
         return result
     }
 
@@ -94,11 +103,44 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
         let copy = NSTextStorage(string: storage.string)
         let saved = revealAllMarkers
         revealAllMarkers = false
+        exporting = true
         let nowhere = NSRange(location: copy.length + 1, length: 0)
         restyle(paragraphsIn: NSRange(location: 0, length: copy.length), storage: copy, selection: nowhere)
+        exporting = false
         revealAllMarkers = saved
         return copy
     }
+
+    // One table cell or similar fragment, styled inline with its markers removed.
+    func inlineStyled(_ line: String, bold: Bool = false) -> NSAttributedString {
+        let storage = NSTextStorage(string: line)
+        let full = NSRange(location: 0, length: storage.length)
+        storage.setAttributes([.font: theme.baseFont, .foregroundColor: theme.resolvedText], range: full)
+        if bold {
+            addTrait(.boldFontMask, range: full, storage: storage)
+        }
+        let nowhere = NSRange(location: storage.length + 1, length: 0)
+        let saved = revealAllMarkers
+        revealAllMarkers = false
+        let spans = MarkdownParser.inlineSpans(in: line)
+        for span in spans {
+            applyInline(span, offset: 0, storage: storage, selection: nowhere)
+        }
+        revealAllMarkers = saved
+        for span in spans.reversed() {
+            storage.deleteCharacters(in: span.closeMarker)
+            storage.deleteCharacters(in: span.openMarker)
+        }
+        return storage
+    }
+
+    private static let codeParagraphStyle: NSParagraphStyle = {
+        let style = NSMutableParagraphStyle()
+        style.firstLineHeadIndent = 12
+        style.headIndent = 12
+        style.tailIndent = -12
+        return style
+    }()
 
     private func restyle(paragraphsIn range: NSRange, storage: NSTextStorage, selection: NSRange? = nil) {
         let ns = storage.string as NSString
@@ -143,7 +185,10 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
         }
 
         if let block = fences.block(containing: paragraph) {
-            storage.addAttributes([.font: theme.codeFont, .backgroundColor: theme.resolvedCodeBackground], range: paragraph)
+            storage.addAttributes([.font: theme.codeFont, .paragraphStyle: Self.codeParagraphStyle], range: paragraph)
+            if exporting {
+                storage.addAttribute(.backgroundColor, value: theme.resolvedCodeBackground, range: paragraph)
+            }
             for token in tokens(for: block, ns: ns) {
                 let global = shifted(token.range, by: block.range.location)
                 let intersection = NSIntersectionRange(global, paragraph)
@@ -160,7 +205,10 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
 
         switch MarkdownParser.blockKind(of: trimmed) {
         case .fenceDelimiter:
-            storage.addAttributes([.font: theme.codeFont, .foregroundColor: theme.resolvedMarker], range: paragraph)
+            storage.addAttributes(
+                [.font: theme.codeFont, .foregroundColor: theme.resolvedMarker, .paragraphStyle: Self.codeParagraphStyle],
+                range: paragraph
+            )
             dimIfUnfocused(paragraph, storage: storage, selection: selection)
             return
         case .horizontalRule:

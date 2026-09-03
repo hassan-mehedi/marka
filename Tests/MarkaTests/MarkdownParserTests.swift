@@ -263,3 +263,25 @@ import Testing
     #expect(MarkdownParser.footnoteReferences(in: "[^1]: definition line").isEmpty)
     #expect(MarkdownParser.footnoteReferences(in: "code `[^1]` span").isEmpty)
 }
+
+@Test func tableBlockParsing() {
+    let text = "intro\n| A | B |\n|---|:-:|\n| 1 | **2** |\n| 3 |\n\nafter | not a table\n"
+    let tables = MarkdownParser.tables(in: text, excluding: FenceInfo())
+    #expect(tables.count == 1)
+    let table = tables[0]
+    #expect(table.rows == [["A", "B"], ["1", "**2**"], ["3", ""]])
+    #expect(table.alignments == [.left, .center])
+    #expect((text as NSString).substring(with: table.fullRange) == "| A | B |\n|---|:-:|\n| 1 | **2** |\n| 3 |")
+}
+
+@Test func tableInsideFenceIsIgnored() {
+    let text = "```\n| a | b |\n|---|---|\n```\n"
+    let tables = MarkdownParser.tables(in: text, excluding: MarkdownParser.fences(in: text))
+    #expect(tables.isEmpty)
+}
+
+@Test func tableCellsSplitOnUnescapedPipes() {
+    #expect(MarkdownParser.tableCells(in: "| a \\| b | c |") == ["a \\| b", "c"])
+    #expect(MarkdownParser.tableCells(in: "x | y") == ["x", "y"])
+    #expect(MarkdownParser.tableCells(in: "| :---: | ---: |") == [":---:", "---:"])
+}

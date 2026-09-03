@@ -251,29 +251,15 @@ enum HTMLExporter {
     }
 
     private static func table(_ index: inout Int, lines: [String], footnotes: FootnoteContext? = nil) -> String {
-        func cells(of line: String) -> [String] {
-            let ns = line as NSString
-            var pipes = MarkdownParser.pipeRanges(in: line).map(\.location)
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if !trimmed.hasPrefix("|") { pipes.insert(-1, at: 0) }
-            if !trimmed.hasSuffix("|") { pipes.append(ns.length) }
-            var result: [String] = []
-            for (start, end) in zip(pipes, pipes.dropFirst()) {
-                let cell = ns.substring(with: NSRange(location: start + 1, length: end - start - 1))
-                result.append(cell.trimmingCharacters(in: .whitespaces))
-            }
-            return result
-        }
-
         var html = "<table>\n<thead>\n<tr>"
-        for cell in cells(of: lines[index]) {
+        for cell in MarkdownParser.tableCells(in: lines[index]) {
             html += "<th>\(inline(cell, footnotes: footnotes))</th>"
         }
         html += "</tr>\n</thead>\n<tbody>\n"
         index += 2
         while index < lines.count, !MarkdownParser.pipeRanges(in: lines[index]).isEmpty {
             html += "<tr>"
-            for cell in cells(of: lines[index]) {
+            for cell in MarkdownParser.tableCells(in: lines[index]) {
                 html += "<td>\(inline(cell, footnotes: footnotes))</td>"
             }
             html += "</tr>\n"

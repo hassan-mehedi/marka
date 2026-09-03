@@ -9,8 +9,10 @@ Swift, AppKit, TextKit 2. No Electron, no web view for the editor itself.
   links, lists, task lists, blockquotes, tables, horizontal rules, and YAML
   front matter style themselves as you type. Syntax markers take zero width
   on lines the caret is not in and reveal when the caret enters a span.
-- Fenced code blocks highlight through tree-sitter grammars, picked by the
-  language tag on the fence.
+- Fenced code blocks render as padded boxes with a language label and
+  highlight through tree-sitter grammars, picked by the language tag on the
+  fence. Tables render as bordered grids with wrapping cells and column
+  alignment; put the caret inside either to edit the source.
 - LaTeX math renders natively through SwiftMath: `$E = mc^2$` inline,
   `$$ ... $$` as a centered block equation. A `$5` price stays literal.
 - Mermaid diagrams render offline from a vendored mermaid 11.15.0 in a
@@ -76,7 +78,10 @@ swift test \
 
 For visual checks without a human, launch with `MARKA_SNAPSHOT=/path/out.png`
 and the app writes a window snapshot and quits. `MARKA_SAMPLE=1` loads a
-sample document first, `MARKA_SIDEBAR=files` opens the file tree pane.
+sample document first, `MARKA_SIDEBAR=files` opens the file tree pane,
+`MARKA_SNAPSHOT_CARET=<offset>` places the caret before capturing,
+`MARKA_SNAPSHOT_TABS=1` opens a second tab, and `MARKA_SNAPSHOT_FRAME=1`
+captures the window frame including the title bar.
 
 ## How it works
 

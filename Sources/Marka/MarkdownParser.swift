@@ -67,6 +67,16 @@ struct MathBlock: Equatable {
     }
 }
 
+struct TableBlock: Equatable {
+    enum Alignment: Equatable {
+        case left, center, right
+    }
+
+    var fullRange: NSRange
+    var rows: [[String]]
+    var alignments: [Alignment]
+}
+
 enum MarkdownParser {
     private static let heading = regex("^(#{1,6})[ \\t]+")
     private static let blockquote = regex("^((?:>[ \\t]?)+)")
@@ -313,6 +323,64 @@ enum MarkdownParser {
             items.append(OutlineItem(level: level, title: title, location: lineRange.location))
         }
         return items
+    }
+
+    static func tableCells(in line: String) -> [String] {
+        let ns = line as NSString
+        var pipes = pipeRanges(in: line).map(\.location)
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if !trimmed.hasPrefix("|") { pipes.insert(-1, at: 0) }
+        if !trimmed.hasSuffix("|") { pipes.append(ns.length) }
+        return zip(pipes, pipes.dropFirst()).map { start, end in
+            ns.substring(with: NSRange(location: start + 1, length: end - start - 1)).trimmingCharacters(in: .whitespaces)
+        }
+    }
+
+    static func tables(in text: String, excluding fences: FenceInfo) -> [TableBlock] {
+        let ns = text as NSString
+        var lines: [(text: String, range: NSRange)] = []
+        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: .byLines) { line, lineRange, _, _ in
+            lines.append((line ?? "", lineRange))
+        }
+
+        var tables: [TableBlock] = []
+        var index = 0
+        while index + 1 < lines.count {
+            let header = lines[index]
+            guard !pipeRanges(in: header.text).isEmpty,
+                  blockKind(of: lines[index + 1].text) == .tableSeparator,
+                  !fences.blocks.contains(where: { NSLocationInRange(header.range.location, $0.fullRange) })
+            else {
+                index += 1
+                continue
+            }
+
+            let headerCells = tableCells(in: header.text)
+            let alignments = tableCells(in: lines[index + 1].text).map { cell -> TableBlock.Alignment in
+                switch (cell.hasPrefix(":"), cell.hasSuffix(":")) {
+                case (true, true): .center
+                case (false, true): .right
+                default: .left
+                }
+            }
+            var rows = [headerCells]
+            var last = index + 1
+            var next = index + 2
+            while next < lines.count, !pipeRanges(in: lines[next].text).isEmpty,
+                  blockKind(of: lines[next].text) == .paragraph {
+                rows.append(tableCells(in: lines[next].text))
+                last = next
+                next += 1
+            }
+            let columns = headerCells.count
+            tables.append(TableBlock(
+                fullRange: NSUnionRange(header.range, lines[last].range),
+                rows: rows.map { row in Array((row + Array(repeating: "", count: columns)).prefix(columns)) },
+                alignments: Array((alignments + Array(repeating: .left, count: columns)).prefix(columns))
+            ))
+            index = next
+        }
+        return tables
     }
 
     static func pipeRanges(in line: String) -> [NSRange] {
