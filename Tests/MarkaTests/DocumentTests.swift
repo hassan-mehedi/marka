@@ -61,3 +61,42 @@ import Testing
     #expect(cell.label.stringValue == "Two")
     #expect(cell.indent == 16)
 }
+
+@Test @MainActor func shortcutKeysRenderModifiersAndSpecialKeys() {
+    let save = NSMenuItem(title: "Save As…", action: nil, keyEquivalent: "S")
+    #expect(ShortcutsWindowController.keys(for: save) == "⇧⌘S")
+    let tab = NSMenuItem(title: "Next Tab", action: nil, keyEquivalent: "\t")
+    tab.keyEquivalentModifierMask = [.control]
+    #expect(ShortcutsWindowController.keys(for: tab) == "⌃⇥")
+    let row = NSMenuItem(title: "Add Row Below", action: nil, keyEquivalent: "\r")
+    row.keyEquivalentModifierMask = [.command]
+    #expect(ShortcutsWindowController.keys(for: row) == "⌘↩")
+    let up = NSMenuItem(title: "Move Row Up", action: nil, keyEquivalent: String(UnicodeScalar(NSUpArrowFunctionKey)!))
+    up.keyEquivalentModifierMask = [.command, .option]
+    #expect(ShortcutsWindowController.keys(for: up) == "⌥⌘↑")
+}
+
+@Test @MainActor func shortcutSectionsFlattenSubmenusAndSkipUnboundItems() {
+    let main = NSMenu()
+    let fileItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
+    let file = NSMenu(title: "File")
+    file.addItem(withTitle: "New", action: nil, keyEquivalent: "n")
+    file.addItem(withTitle: "Import…", action: nil, keyEquivalent: "")
+    let exportItem = file.addItem(withTitle: "Export", action: nil, keyEquivalent: "")
+    let export = NSMenu(title: "Export")
+    export.addItem(withTitle: "PDF…", action: nil, keyEquivalent: "p")
+    exportItem.submenu = export
+    let closeAll = file.addItem(withTitle: "Close All", action: nil, keyEquivalent: "W")
+    closeAll.keyEquivalentModifierMask = [.command, .option]
+    closeAll.isAlternate = true
+    let dictation = file.addItem(withTitle: "Start Dictation…", action: nil, keyEquivalent: "d")
+    dictation.keyEquivalentModifierMask = []
+    file.addItem(withTitle: "Emoji & Symbols", action: nil, keyEquivalent: " ")
+    file.addItem(withTitle: "Emoji & Symbols", action: nil, keyEquivalent: "e")
+    fileItem.submenu = file
+    main.addItem(fileItem)
+    let sections = ShortcutsWindowController.sections(from: main)
+    #expect(sections.map(\.title) == ["File", "Editing"])
+    #expect(sections[0].rows.map(\.name) == ["New", "Export › PDF…", "Close All", "Emoji & Symbols"])
+    #expect(sections[0].rows.map(\.keys) == ["⌘N", "⌘P", "⌥⇧⌘W", "⌘Space"])
+}

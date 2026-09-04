@@ -31,6 +31,9 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
             if environment["MARKA_SNAPSHOT_SETTINGS"] != nil {
                 PreferencesWindowController.shared.showWindow(nil)
             }
+            if environment["MARKA_SNAPSHOT_SHORTCUTS"] != nil {
+                ShortcutsWindowController.shared.showWindow(nil)
+            }
             let document = NSApp.keyWindow?.windowController?.document as? MarkaDocument
             if environment["MARKA_SNAPSHOT_QUICKOPEN"] != nil {
                 document?.quickOpen(nil)
@@ -57,12 +60,39 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
                 if let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible && $0.contentViewController != nil }) {
                     Self.writeSnapshot(of: window, to: snapshotPath, wholeWindow: environment["MARKA_SNAPSHOT_FRAME"] != nil)
                 }
+                if let menuPath = environment["MARKA_DUMP_MENU"], let mainMenu = NSApp.mainMenu {
+                    let recents = NSDocumentController.shared.recentDocumentURLs.map(\.path).joined(separator: "\n")
+                    let dump = Self.describe(menu: mainMenu, indent: "") + "\nrecent documents:\n" + recents + "\n"
+                    try? dump.write(toFile: menuPath, atomically: true, encoding: .utf8)
+                }
                 NSApp.terminate(nil)
             }
         }
     }
 
+    private static func describe(menu: NSMenu, indent: String) -> String {
+        menu.update()
+        return menu.items.map { item -> String in
+            guard !item.isSeparatorItem else { return indent + "---" }
+            var line = indent + item.title
+            if !item.keyEquivalent.isEmpty {
+                line += "  [\(item.keyEquivalentModifierMask.rawValue):\(item.keyEquivalent)]"
+            }
+            if !item.isEnabled { line += "  (disabled)" }
+            if let submenu = item.submenu {
+                line += "\n" + describe(menu: submenu, indent: indent + "  ")
+            }
+            return line
+        }.joined(separator: "\n")
+    }
+
     private static func writeSnapshot(of window: NSWindow, to path: String, wholeWindow: Bool) {
+        if ProcessInfo.processInfo.environment["MARKA_SNAPSHOT_SCREEN"] != nil {
+            guard let image = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(window.windowNumber), [.boundsIgnoreFraming]) else { return }
+            let rep = NSBitmapImageRep(cgImage: image)
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+            return
+        }
         guard let content = window.contentView,
               let view = wholeWindow ? content.superview : content,
               let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)
@@ -108,15 +138,7 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         quickOpen.keyEquivalentModifierMask = [.command, .shift]
 
         let recentItem = fileMenu.addItem(withTitle: "Open Recent", action: nil, keyEquivalent: "")
-        let recentMenu = NSMenu(title: "Open Recent")
-        // AppKit fills this submenu in by identifier.
-        recentMenu.identifier = NSUserInterfaceItemIdentifier("NSRecentDocumentsMenu")
-        recentMenu.addItem(
-            withTitle: "Clear Menu",
-            action: #selector(NSDocumentController.clearRecentDocuments(_:)),
-            keyEquivalent: ""
-        )
-        recentItem.submenu = recentMenu
+        recentItem.submenu = makeRecentMenu()
         fileMenu.addItem(withTitle: "Import…", action: #selector(MarkaDocumentController.importDocument(_:)), keyEquivalent: "")
         fileMenu.addItem(.separator())
         fileMenu.addItem(withTitle: "Save", action: #selector(NSDocument.save(_:)), keyEquivalent: "s")
@@ -267,7 +289,59 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         windowMenuItem.submenu = windowMenu
         mainMenu.addItem(windowMenuItem)
 
+        let helpMenuItem = NSMenuItem()
+        let helpMenu = NSMenu(title: "Help")
+        let shortcuts = helpMenu.addItem(withTitle: "Keyboard Shortcuts", action: #selector(showShortcuts(_:)), keyEquivalent: "/")
+        shortcuts.keyEquivalentModifierMask = [.command, .shift]
+        helpMenuItem.submenu = helpMenu
+        mainMenu.addItem(helpMenuItem)
+        NSApp.helpMenu = helpMenu
+
         return mainMenu
+    }
+
+    // AppKit only fills a recent-documents submenu that comes from a nib, so
+    // this one lists the document controller's recents each time it opens.
+    private static let recentMenuBuilder = RecentMenuBuilder()
+
+    private static func makeRecentMenu() -> NSMenu {
+        let menu = NSMenu(title: "Open Recent")
+        menu.delegate = recentMenuBuilder
+        recentMenuBuilder.menuNeedsUpdate(menu)
+        return menu
+    }
+
+    private final class RecentMenuBuilder: NSObject, NSMenuDelegate {
+        func menuNeedsUpdate(_ menu: NSMenu) {
+            menu.removeAllItems()
+            let recents = NSDocumentController.shared.recentDocumentURLs
+            for url in recents {
+                let item = menu.addItem(withTitle: url.lastPathComponent, action: #selector(MarkaApp.openRecent(_:)), keyEquivalent: "")
+                item.representedObject = url
+                item.toolTip = url.path
+                let icon = NSWorkspace.shared.icon(forFile: url.path)
+                icon.size = NSSize(width: 16, height: 16)
+                item.image = icon
+            }
+            if !recents.isEmpty { menu.addItem(.separator()) }
+            let clear = menu.addItem(
+                withTitle: "Clear Menu",
+                action: #selector(NSDocumentController.clearRecentDocuments(_:)),
+                keyEquivalent: ""
+            )
+            clear.isEnabled = !recents.isEmpty
+        }
+    }
+
+    @objc fileprivate func openRecent(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, error in
+            if let error { NSAlert(error: error).runModal() }
+        }
+    }
+
+    @objc private func showShortcuts(_ sender: Any?) {
+        ShortcutsWindowController.shared.showWindow(sender)
     }
 
     private static func makeTableMenu() -> NSMenu {
