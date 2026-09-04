@@ -44,9 +44,17 @@ final class DocumentContentViewController: NSViewController {
         self.view = view
 
         let center = NotificationCenter.default
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification, NSWindow.willCloseNotification, NSWindow.didUpdateNotification] {
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification, NSWindow.willCloseNotification] {
             center.addObserver(self, selector: #selector(windowsDidChange), name: name, object: nil)
         }
+        // Every window posts didUpdate on each pass of the event loop; this
+        // window's own is enough, since a refresh reads every tab's title.
+        center.addObserver(self, selector: #selector(windowDidUpdate(_:)), name: NSWindow.didUpdateNotification, object: nil)
+    }
+
+    @objc private func windowDidUpdate(_ notification: Notification) {
+        guard (notification.object as? NSWindow) === view.window else { return }
+        refresh()
     }
 
     override func viewDidAppear() {

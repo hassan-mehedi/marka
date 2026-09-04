@@ -28,9 +28,11 @@ if [ -n "${MARKA_VERSION:-}" ]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $MARKA_VERSION" "$APP/Contents/Info.plist"
 fi
 
-ICONSET="$(mktemp -d)/Marka.iconset"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+ICONSET="$WORK/Marka.iconset"
 mkdir -p "$ICONSET"
-PNG="$(mktemp -d)/icon.png"
+PNG="$WORK/icon.png"
 swift "$ROOT/scripts/make-icon.swift" "$PNG"
 for pair in "16 16x16" "32 16x16@2x" "32 32x32" "64 32x32@2x" "128 128x128" "256 128x128@2x" "256 256x256" "512 256x256@2x" "512 512x512" "1024 512x512@2x"; do
     set -- $pair
