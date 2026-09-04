@@ -331,11 +331,12 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
     private var lastOutline: [OutlineItem] = []
 
     private func updateOutline() {
-        let items = MarkdownParser.outline(in: textView.string)
+        let excluded = highlighter.fences.blocks.map(\.fullRange) + [highlighter.frontMatter].compactMap { $0 }
+        let items = MarkdownParser.outline(in: textView.string, excluding: excluded)
         let changed = items != lastOutline
         lastOutline = items
         onOutlineChange?(items)
-        if changed, textView.string.contains("[TOC]") || textView.string.contains("[toc]") {
+        if changed, textView.string.range(of: "[toc]", options: .caseInsensitive) != nil {
             refreshDisplayParagraphs()
         }
     }
@@ -433,7 +434,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         guard column > 0 else { return }
         var line = ns.substring(with: paragraph)
         if line.hasSuffix("\n") { line.removeLast() }
-        let replacements = Self.displayReplacements(in: line, markersHidden: !wasInside, mathCollapses: { [weak self] math in
+        let replacements = LineCache.info(for: line).displayReplacements(markersHidden: !wasInside, mathCollapses: { [weak self] math in
             self?.mathRenders(math, in: line) ?? true
         })
         let source = min(Self.sourceOffset(forDisplayColumn: column, replacements: replacements), (line as NSString).length)
@@ -945,16 +946,17 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
             return table
         }
 
-        if MarkdownParser.isTOCLine(line), !selectionTouches(range, selection),
+        let info = LineCache.info(for: line)
+        if info.isTOC, !selectionTouches(range, selection),
            let toc = tocParagraph(newline: hadNewline) {
             return toc
         }
 
         if !selectionTouches(range, selection) {
-            if let path = MarkdownParser.imageLinePath(in: line), let image = resolvedImage(at: path) {
+            if let path = info.imagePath, let image = resolvedImage(at: path) {
                 return blockParagraph(with: image, centered: false, newline: hadNewline)
             }
-            if let latex = MarkdownParser.displayMathContent(in: line),
+            if let latex = info.displayMath,
                let image = MathRenderer.shared.image(
                    latex: latex,
                    fontSize: ThemeManager.shared.current.baseFont.pointSize * 1.2,
@@ -965,35 +967,15 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
             }
         }
 
-        return styledParagraph(for: range, line: line, storage: storage, selection: selection)
+        return styledParagraph(for: range, line: line, info: info, storage: storage, selection: selection)
     }
 
-    // Source ranges that render with a different length: markers vanish,
-    // an inline math span becomes a single attachment character.
     nonisolated static func displayReplacements(
         in line: String,
         markersHidden: Bool = true,
         mathCollapses: (MathSpan) -> Bool = { _ in true }
     ) -> [(range: NSRange, displayLength: Int)] {
-        var replacements: [(NSRange, Int)] = []
-        if markersHidden {
-            if case let .heading(_, marker) = MarkdownParser.blockKind(of: line) {
-                replacements.append((marker, 0))
-            }
-            for span in MarkdownParser.inlineSpans(in: line) {
-                replacements.append((span.openMarker, 0))
-                replacements.append((span.closeMarker, 0))
-            }
-        }
-        replacements += MarkdownParser.inlineMathSpans(in: line).filter(mathCollapses).map { ($0.range, 1) }
-        replacements.sort { $0.0.location < $1.0.location }
-
-        var result: [(NSRange, Int)] = []
-        for replacement in replacements {
-            if let last = result.last, NSMaxRange(last.0) > replacement.0.location { continue }
-            result.append(replacement)
-        }
-        return result
+        LineCache.info(for: line).displayReplacements(markersHidden: markersHidden, mathCollapses: mathCollapses)
     }
 
     nonisolated static func sourceOffset(forDisplayColumn column: Int, in line: String) -> Int {
@@ -1030,6 +1012,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
     private func styledParagraph(
         for range: NSRange,
         line: String,
+        info: LineInfo,
         storage: NSTextStorage,
         selection: NSRange
     ) -> NSTextParagraph? {
@@ -1037,13 +1020,14 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
 
         let lineNS = line as NSString
         let paragraphUntouched = !selectionTouches(range, selection)
+        let replacements = info.displayReplacements()
+        guard !replacements.isEmpty else { return nil }
         let display = NSMutableAttributedString(attributedString: storage.attributedSubstring(from: range))
         var changed = false
 
-        for (span, displayLength) in Self.displayReplacements(in: line).reversed() {
+        for (span, displayLength) in replacements.reversed() {
             if displayLength == 1 {
-                let mathSpans = MarkdownParser.inlineMathSpans(in: line)
-                guard let math = mathSpans.first(where: { $0.range == span }) else { continue }
+                guard let math = info.inlineMath.first(where: { $0.range == span }) else { continue }
                 let global = NSRange(location: range.location + span.location, length: span.length)
                 guard !selectionTouches(global, selection) else { continue }
                 guard let image = MathRenderer.shared.image(
@@ -1188,7 +1172,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
             let indent = String(repeating: "      ", count: item.level - baseLevel)
             var attributes: [NSAttributedString.Key: Any] = [
                 .font: item.level == baseLevel
-                    ? NSFontManager.shared.convert(theme.baseFont, toHaveTrait: .boldFontMask)
+                    ? FontCache.font(theme.baseFont, withTrait: .boldFontMask)
                     : theme.baseFont,
                 .foregroundColor: theme.resolvedLink,
             ]

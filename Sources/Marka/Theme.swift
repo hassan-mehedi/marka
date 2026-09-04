@@ -27,8 +27,8 @@ struct Theme: Equatable {
     func headingFont(level: Int) -> NSFont {
         let scales: [CGFloat] = [1.75, 1.5, 1.3, 1.2, 1.05, 1.0]
         let size = (baseFontSize * scales[min(max(level, 1), 6) - 1]).rounded()
-        let bold = NSFontManager.shared.convert(baseFont, toHaveTrait: .boldFontMask)
-        return NSFontManager.shared.convert(bold, toSize: size)
+        let bold = FontCache.font(baseFont, withTrait: .boldFontMask)
+        return FontCache.font(bold, size: size)
     }
 
     var resolvedText: NSColor { textColor ?? .textColor }
@@ -45,7 +45,7 @@ struct Theme: Equatable {
 
     private func font(named name: String?, size: CGFloat) -> NSFont? {
         guard let name else { return nil }
-        return NSFont(name: name, size: size)
+        return FontCache.font(named: name, size: size)
     }
 
     static let defaultTokenColors: [String: NSColor] = [

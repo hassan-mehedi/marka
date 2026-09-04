@@ -12,14 +12,22 @@ final class ThemeManager {
     private(set) var fontScale: Double
 
     // The selected theme with the user's font choices applied and sizes
-    // multiplied by the zoom level.
-    var current: Theme {
-        let themed = Preferences.shared.apply(to: baseTheme)
+    // multiplied by the zoom level. Rebuilt when any of those change, so a
+    // read is a plain copy.
+    private(set) var current: Theme
+
+    private static func resolve(_ theme: Theme, fontScale: Double) -> Theme {
+        let themed = Preferences.shared.apply(to: theme)
         guard fontScale != 1 else { return themed }
         var scaled = themed
         scaled.baseFontSize = (themed.baseFontSize * fontScale).rounded()
         scaled.codeFontSize = (themed.codeFontSize * fontScale).rounded()
         return scaled
+    }
+
+    private func announce() {
+        current = Self.resolve(baseTheme, fontScale: fontScale)
+        NotificationCenter.default.post(name: Self.didChange, object: nil)
     }
 
     var themes: [Theme] {
@@ -43,12 +51,11 @@ final class ThemeManager {
         baseTheme = available.first { $0.name == saved } ?? .systemTheme
         let savedScale = UserDefaults.standard.double(forKey: Self.scaleKey)
         fontScale = Self.scaleSteps.contains(savedScale) ? savedScale : 1
+        current = Self.resolve(baseTheme, fontScale: fontScale)
         NotificationCenter.default.addObserver(
             forName: Preferences.didChange, object: nil, queue: .main
-        ) { _ in
-            MainActor.assumeIsolated {
-                NotificationCenter.default.post(name: Self.didChange, object: nil)
-            }
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.announce() }
         }
     }
 
@@ -56,7 +63,7 @@ final class ThemeManager {
         guard let theme = themes.first(where: { $0.name == name }), theme != baseTheme else { return }
         baseTheme = theme
         UserDefaults.standard.set(name, forKey: Self.defaultsKey)
-        NotificationCenter.default.post(name: Self.didChange, object: nil)
+        announce()
     }
 
     func setFontScale(_ scale: Double) {
@@ -64,7 +71,7 @@ final class ThemeManager {
         guard clamped != fontScale else { return }
         fontScale = clamped
         UserDefaults.standard.set(clamped, forKey: Self.scaleKey)
-        NotificationCenter.default.post(name: Self.didChange, object: nil)
+        announce()
     }
 
     static var userThemesDirectory: URL {

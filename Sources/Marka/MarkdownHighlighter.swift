@@ -3,7 +3,8 @@ import AppKit
 @MainActor
 final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
     private unowned let textView: NSTextView
-    private var theme: Theme { ThemeManager.shared.current }
+    // Snapshot taken at the start of each styling pass.
+    private var theme = ThemeManager.shared.current
     var revealAllMarkers = false
     var focusMode = false
     private(set) var fences = FenceInfo()
@@ -37,10 +38,11 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
 
     func highlightAll() {
         guard let storage = textView.textStorage else { return }
-        fences = MarkdownParser.fences(in: storage.string)
-        mathBlocks = MarkdownParser.mathBlocks(in: storage.string, excluding: fences)
-        tables = MarkdownParser.tables(in: storage.string, excluding: fences)
-        frontMatter = MarkdownParser.frontMatterRange(in: storage.string)
+        let structure = MarkdownParser.structure(in: storage.string)
+        fences = structure.fences
+        mathBlocks = structure.mathBlocks
+        tables = structure.tables
+        frontMatter = structure.frontMatter
         codeTokenCache.removeAll()
         restyle(paragraphsIn: NSRange(location: 0, length: storage.length), storage: storage)
         pendingEditedRange = nil
@@ -51,10 +53,11 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
 
     func handleEdit() {
         guard let storage = textView.textStorage else { return }
-        let newFences = MarkdownParser.fences(in: storage.string)
-        let newMathBlocks = MarkdownParser.mathBlocks(in: storage.string, excluding: newFences)
-        let newTables = MarkdownParser.tables(in: storage.string, excluding: newFences)
-        let newFrontMatter = MarkdownParser.frontMatterRange(in: storage.string)
+        let structure = MarkdownParser.structure(in: storage.string)
+        let newFences = structure.fences
+        let newMathBlocks = structure.mathBlocks
+        let newTables = structure.tables
+        let newFrontMatter = structure.frontMatter
 
         // Typing shifts every block after the caret; only a change in the
         // block structure itself needs the whole document restyled.
@@ -160,6 +163,7 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
 
     // One table cell or similar fragment, styled inline with its markers removed.
     func inlineStyled(_ line: String, bold: Bool = false) -> NSAttributedString {
+        theme = ThemeManager.shared.current
         let storage = NSTextStorage(string: line)
         let full = NSRange(location: 0, length: storage.length)
         storage.setAttributes([.font: theme.baseFont, .foregroundColor: theme.resolvedText], range: full)
@@ -169,7 +173,7 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
         let nowhere = NSRange(location: storage.length + 1, length: 0)
         let saved = revealAllMarkers
         revealAllMarkers = false
-        let spans = MarkdownParser.inlineSpans(in: line)
+        let spans = LineCache.info(for: line).inlineSpans
         for span in spans {
             applyInline(span, offset: 0, storage: storage, selection: nowhere)
         }
@@ -190,6 +194,7 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
     }()
 
     private func restyle(paragraphsIn range: NSRange, storage: NSTextStorage, selection: NSRange? = nil) {
+        theme = ThemeManager.shared.current
         let ns = storage.string as NSString
         var target = ns.paragraphRange(for: clamp(range, to: ns.length))
         // Include one paragraph on each side: table header styling depends on neighbors.
@@ -249,8 +254,9 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
 
         let line = ns.substring(with: paragraph)
         let trimmed = line.hasSuffix("\n") ? String(line.dropLast()) : line
+        let info = LineCache.info(for: trimmed)
 
-        switch MarkdownParser.blockKind(of: trimmed) {
+        switch info.blockKind {
         case .fenceDelimiter:
             storage.addAttributes(
                 [.font: theme.codeFont, .foregroundColor: theme.resolvedMarker, .paragraphStyle: Self.codeParagraphStyle],
@@ -293,45 +299,45 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
             dimIfUnfocused(paragraph, storage: storage, selection: selection)
             return
         case .paragraph:
-            if MarkdownParser.isTOCLine(trimmed) {
+            if info.isTOC {
                 storage.addAttribute(.foregroundColor, value: theme.resolvedMarker, range: paragraph)
             }
-            if let definition = MarkdownParser.footnoteDefinitionMarker(in: trimmed) {
-                storage.addAttribute(.foregroundColor, value: theme.resolvedAccent, range: shifted(definition.marker, by: paragraph.location))
+            if let definition = info.footnoteDefinition {
+                storage.addAttribute(.foregroundColor, value: theme.resolvedAccent, range: shifted(definition, by: paragraph.location))
                 let rest = NSRange(
-                    location: paragraph.location + NSMaxRange(definition.marker),
-                    length: paragraph.length - NSMaxRange(definition.marker)
+                    location: paragraph.location + NSMaxRange(definition),
+                    length: paragraph.length - NSMaxRange(definition)
                 )
                 storage.addAttribute(.foregroundColor, value: theme.resolvedSecondary, range: rest)
             }
-            styleTableRowIfNeeded(trimmed, paragraph: paragraph, ns: ns, storage: storage)
+            styleTableRowIfNeeded(info, paragraph: paragraph, ns: ns, storage: storage)
         }
 
-        for reference in MarkdownParser.footnoteReferences(in: trimmed) {
+        for reference in info.footnoteReferences {
             let range = shifted(reference.range, by: paragraph.location)
             let size = theme.baseFontSize * 0.75
             storage.addAttributes([
                 .foregroundColor: theme.resolvedAccent,
-                .font: NSFontManager.shared.convert(theme.baseFont, toSize: size),
+                .font: FontCache.font(theme.baseFont, size: size),
                 .baselineOffset: theme.baseFontSize * 0.3,
             ], range: range)
         }
 
-        for span in MarkdownParser.inlineSpans(in: trimmed) {
+        for span in info.inlineSpans {
             applyInline(span, offset: paragraph.location, storage: storage, selection: selection)
         }
 
-        styleMathDelimiters(in: trimmed, paragraph: paragraph, storage: storage)
+        styleMathDelimiters(info, paragraph: paragraph, storage: storage)
 
         dimIfUnfocused(paragraph, storage: storage, selection: selection)
     }
 
-    private func styleMathDelimiters(in line: String, paragraph: NSRange, storage: NSTextStorage) {
-        if MarkdownParser.displayMathContent(in: line) != nil {
+    private func styleMathDelimiters(_ info: LineInfo, paragraph: NSRange, storage: NSTextStorage) {
+        if info.displayMath != nil {
             storage.addAttribute(.foregroundColor, value: theme.resolvedMarker, range: paragraph)
             return
         }
-        for math in MarkdownParser.inlineMathSpans(in: line) {
+        for math in info.inlineMath {
             let open = NSRange(location: paragraph.location + math.range.location, length: 1)
             let close = NSRange(location: paragraph.location + NSMaxRange(math.range) - 1, length: 1)
             storage.addAttribute(.foregroundColor, value: theme.resolvedMarker, range: open)
@@ -339,15 +345,15 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
         }
     }
 
-    private func styleTableRowIfNeeded(_ line: String, paragraph: NSRange, ns: NSString, storage: NSTextStorage) {
-        let pipes = MarkdownParser.pipeRanges(in: line)
+    private func styleTableRowIfNeeded(_ info: LineInfo, paragraph: NSRange, ns: NSString, storage: NSTextStorage) {
+        let pipes = info.pipes
         guard !pipes.isEmpty else { return }
 
-        let previous = neighborLine(of: paragraph, ns: ns, forward: false)
-        let next = neighborLine(of: paragraph, ns: ns, forward: true)
-        let nextIsSeparator = next.map { MarkdownParser.blockKind(of: $0) == .tableSeparator } ?? false
-        let previousIsSeparator = previous.map { MarkdownParser.blockKind(of: $0) == .tableSeparator } ?? false
-        let previousIsRow = previous.map { !MarkdownParser.pipeRanges(in: $0).isEmpty } ?? false
+        let previous = neighborLine(of: paragraph, ns: ns, forward: false).map(LineCache.info(for:))
+        let next = neighborLine(of: paragraph, ns: ns, forward: true).map(LineCache.info(for:))
+        let nextIsSeparator = next?.blockKind == .tableSeparator
+        let previousIsSeparator = previous?.blockKind == .tableSeparator
+        let previousIsRow = previous.map { !$0.pipes.isEmpty } ?? false
         guard nextIsSeparator || previousIsSeparator || previousIsRow else { return }
 
         for pipe in pipes {
@@ -427,7 +433,7 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
     private func addTrait(_ trait: NSFontTraitMask, range: NSRange, storage: NSTextStorage) {
         storage.enumerateAttribute(.font, in: range) { value, subrange, _ in
             let font = value as? NSFont ?? theme.baseFont
-            storage.addAttribute(.font, value: NSFontManager.shared.convert(font, toHaveTrait: trait), range: subrange)
+            storage.addAttribute(.font, value: FontCache.font(font, withTrait: trait), range: subrange)
         }
     }
 

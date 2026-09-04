@@ -1,7 +1,7 @@
 import Foundation
 
-struct InlineSpan: Equatable {
-    enum Kind: Equatable {
+struct InlineSpan: Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
         case bold, italic, boldItalic, strikethrough, code
         case link(url: String)
         case image(src: String)
@@ -14,7 +14,7 @@ struct InlineSpan: Equatable {
     let closeMarker: NSRange
 }
 
-enum BlockKind: Equatable {
+enum BlockKind: Equatable, Sendable {
     case heading(level: Int, marker: NSRange)
     case blockquote(marker: NSRange)
     case listItem(marker: NSRange)
@@ -25,12 +25,12 @@ enum BlockKind: Equatable {
     case paragraph
 }
 
-struct MathSpan: Equatable {
+struct MathSpan: Equatable, Sendable {
     let range: NSRange
     let content: NSRange
 }
 
-struct FenceBlock: Equatable {
+struct FenceBlock: Equatable, Sendable {
     var range: NSRange
     var language: String
     var openDelimiter: NSRange
@@ -45,7 +45,7 @@ struct FenceBlock: Equatable {
     }
 }
 
-struct FenceInfo: Equatable {
+struct FenceInfo: Equatable, Sendable {
     var delimiterLines: [NSRange] = []
     var blocks: [FenceBlock] = []
 
@@ -54,7 +54,7 @@ struct FenceInfo: Equatable {
     }
 }
 
-struct MathBlock: Equatable {
+struct MathBlock: Equatable, Sendable {
     var range: NSRange
     var openDelimiter: NSRange
     var closeDelimiter: NSRange?
@@ -68,14 +68,124 @@ struct MathBlock: Equatable {
     }
 }
 
-struct TableBlock: Equatable {
-    enum Alignment: Equatable {
+struct TableBlock: Equatable, Sendable {
+    enum Alignment: Equatable, Sendable {
         case left, center, right
     }
 
     var fullRange: NSRange
     var rows: [[String]]
     var alignments: [Alignment]
+}
+
+// Everything the editor needs to know about one line, computed once and
+// shared by the highlighter, the display layer and the caret remap.
+struct LineInfo: Sendable {
+    let blockKind: BlockKind
+    let inlineSpans: [InlineSpan]
+    let inlineMath: [MathSpan]
+    let displayMath: String?
+    let footnoteDefinition: NSRange?
+    let footnoteReferences: [(range: NSRange, label: String)]
+    let pipes: [NSRange]
+    let isTOC: Bool
+    let imagePath: String?
+
+    // Source ranges that render with a different length: markers vanish,
+    // an inline math span becomes a single attachment character.
+    func displayReplacements(
+        markersHidden: Bool = true,
+        mathCollapses: (MathSpan) -> Bool = { _ in true }
+    ) -> [(range: NSRange, displayLength: Int)] {
+        var replacements: [(NSRange, Int)] = []
+        if markersHidden {
+            if case let .heading(_, marker) = blockKind {
+                replacements.append((marker, 0))
+            }
+            for span in inlineSpans {
+                replacements.append((span.openMarker, 0))
+                replacements.append((span.closeMarker, 0))
+            }
+        }
+        replacements += inlineMath.filter(mathCollapses).map { ($0.range, 1) }
+        replacements.sort { $0.0.location < $1.0.location }
+
+        var result: [(NSRange, Int)] = []
+        for replacement in replacements {
+            if let last = result.last, NSMaxRange(last.0) > replacement.0.location { continue }
+            result.append(replacement)
+        }
+        return result
+    }
+
+    init(line: String) {
+        blockKind = MarkdownParser.blockKind(of: line)
+        pipes = MarkdownParser.pipeRanges(in: line)
+        switch blockKind {
+        case .fenceDelimiter, .horizontalRule, .tableSeparator:
+            inlineSpans = []
+            inlineMath = []
+            displayMath = nil
+            footnoteDefinition = nil
+            footnoteReferences = []
+            isTOC = false
+            imagePath = nil
+        default:
+            inlineSpans = MarkdownParser.inlineSpans(in: line)
+            displayMath = MarkdownParser.displayMathContent(in: line)
+            inlineMath = displayMath == nil ? MarkdownParser.inlineMathSpans(in: line) : []
+            footnoteDefinition = MarkdownParser.footnoteDefinitionMarker(in: line)?.marker
+            footnoteReferences = footnoteDefinition == nil ? MarkdownParser.footnoteReferences(in: line) : []
+            isTOC = MarkdownParser.isTOCLine(line)
+            imagePath = MarkdownParser.imageLinePath(in: line)
+        }
+    }
+}
+
+// Two-generation cache of LineInfo keyed by the line text. When the young
+// generation fills up it becomes the old one, so lines still in use survive
+// while lines that were edited away fall out after one more turnover.
+enum LineCache {
+    private static let capacity = 4000
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var young: [String: LineInfo] = [:]
+    nonisolated(unsafe) private static var old: [String: LineInfo] = [:]
+
+    static func info(for line: String) -> LineInfo {
+        lock.lock()
+        if let hit = young[line] {
+            lock.unlock()
+            return hit
+        }
+        if let hit = old[line] {
+            store(line, hit)
+            lock.unlock()
+            return hit
+        }
+        lock.unlock()
+        let info = LineInfo(line: line)
+        lock.lock()
+        store(line, info)
+        lock.unlock()
+        return info
+    }
+
+    private static func store(_ line: String, _ info: LineInfo) {
+        if young.count >= capacity {
+            old = young
+            young = [:]
+        }
+        young[line] = info
+    }
+}
+
+// Block-level layout of a document: fences, math blocks, tables and front
+// matter, found in one pass over the lines.
+struct BlockStructure: Equatable, Sendable {
+    var fences = FenceInfo()
+    var mathBlocks: [MathBlock] = []
+    var tables: [TableBlock] = []
+    var frontMatter: NSRange?
 }
 
 enum MarkdownParser {
@@ -214,6 +324,138 @@ enum MarkdownParser {
         return line.dropFirst(marker.length).allSatisfy { $0 == " " || $0 == "\t" }
     }
 
+
+    static func structure(in text: String) -> BlockStructure {
+        let ns = text as NSString
+        var result = BlockStructure()
+
+        var fenceContentStart: Int?
+        var fenceLanguage = ""
+        var fenceDelimiter = NSRange(location: 0, length: 0)
+        var opener: (character: Character, length: Int) = ("`", 3)
+
+        var mathContentStart: Int?
+        var mathDelimiter = NSRange(location: 0, length: 0)
+
+        var frontMatterOpen = false
+        var frontMatterDecided = false
+
+        var previous: (text: String, range: NSRange, inFence: Bool)?
+        var tableStart: NSRange?
+        var tableRows: [[String]] = []
+        var tableAlignments: [TableBlock.Alignment] = []
+        var tableEnd = NSRange(location: 0, length: 0)
+
+        func closeTable() {
+            guard let start = tableStart else { return }
+            tableStart = nil
+            let columns = tableRows.map(\.count).max() ?? 0
+            guard columns > 0 else { return }
+            result.tables.append(TableBlock(
+                fullRange: NSUnionRange(start, tableEnd),
+                rows: tableRows.map { row in row + Array(repeating: "", count: columns - row.count) },
+                alignments: Array((tableAlignments + Array(repeating: .left, count: columns)).prefix(columns))
+            ))
+        }
+
+        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: .byLines) { substring, lineRange, enclosingRange, _ in
+            let line = substring ?? ""
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            if !frontMatterDecided {
+                if frontMatterOpen {
+                    if trimmed == "---" || trimmed == "..." {
+                        result.frontMatter = NSRange(location: 0, length: NSMaxRange(lineRange))
+                        frontMatterDecided = true
+                    }
+                } else if lineRange.location == 0, trimmed == "---" {
+                    frontMatterOpen = true
+                } else {
+                    frontMatterDecided = true
+                }
+            }
+
+            var inFence = false
+            if let start = fenceContentStart {
+                inFence = true
+                if closesFence(line, opener: opener) {
+                    result.fences.delimiterLines.append(lineRange)
+                    result.fences.blocks.append(FenceBlock(
+                        range: NSRange(location: start, length: lineRange.location - start),
+                        language: fenceLanguage,
+                        openDelimiter: fenceDelimiter,
+                        closeDelimiter: lineRange
+                    ))
+                    fenceContentStart = nil
+                }
+            } else if let marker = fenceMarker(of: line) {
+                inFence = true
+                result.fences.delimiterLines.append(lineRange)
+                opener = marker
+                fenceContentStart = NSMaxRange(enclosingRange)
+                fenceLanguage = String(line.dropFirst(marker.length)).trimmingCharacters(in: .whitespaces)
+                fenceDelimiter = lineRange
+            }
+
+            if !inFence, trimmed == "$$" {
+                if let start = mathContentStart {
+                    result.mathBlocks.append(MathBlock(
+                        range: NSRange(location: start, length: lineRange.location - start),
+                        openDelimiter: mathDelimiter,
+                        closeDelimiter: lineRange
+                    ))
+                    mathContentStart = nil
+                } else {
+                    mathContentStart = NSMaxRange(enclosingRange)
+                    mathDelimiter = lineRange
+                }
+            }
+
+            let hasPipes = !pipeRanges(in: line).isEmpty
+            if tableStart != nil {
+                if hasPipes, blockKind(of: line) == .paragraph {
+                    tableRows.append(tableCells(in: line))
+                    tableEnd = lineRange
+                    previous = (line, lineRange, inFence)
+                    return
+                }
+                closeTable()
+            }
+            if let header = previous, !header.inFence, hasPipes, !pipeRanges(in: header.text).isEmpty,
+               blockKind(of: line) == .tableSeparator {
+                tableStart = header.range
+                tableEnd = lineRange
+                tableRows = [tableCells(in: header.text)]
+                tableAlignments = tableCells(in: line).map { cell in
+                    switch (cell.hasPrefix(":"), cell.hasSuffix(":")) {
+                    case (true, true): .center
+                    case (false, true): .right
+                    default: .left
+                    }
+                }
+            }
+            previous = (line, lineRange, inFence)
+        }
+
+        closeTable()
+        if let start = fenceContentStart, start < ns.length {
+            result.fences.blocks.append(FenceBlock(
+                range: NSRange(location: start, length: ns.length - start),
+                language: fenceLanguage,
+                openDelimiter: fenceDelimiter,
+                closeDelimiter: nil
+            ))
+        }
+        if let start = mathContentStart, start < ns.length {
+            result.mathBlocks.append(MathBlock(
+                range: NSRange(location: start, length: ns.length - start),
+                openDelimiter: mathDelimiter,
+                closeDelimiter: nil
+            ))
+        }
+        return result
+    }
+
     static func fences(in text: String) -> FenceInfo {
         let ns = text as NSString
         var info = FenceInfo()
@@ -346,11 +588,15 @@ enum MarkdownParser {
     }
 
     static func outline(in text: String) -> [OutlineItem] {
-        let ns = text as NSString
         let excluded = fences(in: text).blocks.map(\.fullRange) + [frontMatterRange(in: text)].compactMap { $0 }
+        return outline(in: text, excluding: excluded)
+    }
+
+    static func outline(in text: String, excluding excluded: [NSRange]) -> [OutlineItem] {
+        let ns = text as NSString
         var items: [OutlineItem] = []
         ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: .byLines) { line, lineRange, _, _ in
-            guard let line, case let .heading(level, marker) = blockKind(of: line) else { return }
+            guard let line, line.hasPrefix("#"), case let .heading(level, marker) = blockKind(of: line) else { return }
             guard !excluded.contains(where: { NSLocationInRange(lineRange.location, $0) }) else { return }
             let title = (line as NSString).substring(from: NSMaxRange(marker)).trimmingCharacters(in: .whitespaces)
             items.append(OutlineItem(level: level, title: title, location: lineRange.location))

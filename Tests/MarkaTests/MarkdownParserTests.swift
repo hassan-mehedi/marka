@@ -330,3 +330,51 @@ import Testing
     let spans = MarkdownParser.inlineSpans(in: "text ![alt](a.png) more")
     #expect(spans.map(\.kind) == [.image(src: "a.png")])
 }
+
+@Test func structureMatchesTheSeparateScans() {
+    let text = """
+    ---
+    title: x
+    ---
+    # Heading
+
+    | a | b |
+    |---|---|
+    | 1 | 2 |
+
+    ```swift
+    let x = "|"
+    $$
+    ```
+
+    $$
+    x^2
+    $$
+
+    | c |
+    | - |
+    text
+    ~~~
+    open
+    """
+    let structure = MarkdownParser.structure(in: text)
+    let fences = MarkdownParser.fences(in: text)
+    #expect(structure.fences == fences)
+    #expect(structure.mathBlocks == MarkdownParser.mathBlocks(in: text, excluding: fences))
+    #expect(structure.tables == MarkdownParser.tables(in: text, excluding: fences))
+    #expect(structure.frontMatter == MarkdownParser.frontMatterRange(in: text))
+    #expect(structure.tables.count == 2)
+    #expect(structure.mathBlocks.count == 1)
+    #expect(structure.fences.blocks.count == 2)
+}
+
+@Test func lineInfoMatchesTheSeparateParsers() {
+    let line = "Some **bold** with $x$ and [^1] plus | pipe"
+    let info = LineInfo(line: line)
+    #expect(info.blockKind == .paragraph)
+    #expect(info.inlineSpans == MarkdownParser.inlineSpans(in: line))
+    #expect(info.inlineMath == MarkdownParser.inlineMathSpans(in: line))
+    #expect(info.footnoteReferences.map(\.label) == ["1"])
+    #expect(info.pipes.count == 1)
+    #expect(LineCache.info(for: line).inlineSpans == info.inlineSpans)
+}
