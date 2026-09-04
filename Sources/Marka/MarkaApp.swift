@@ -1,4 +1,5 @@
 import AppKit
+import ScreenCaptureKit
 
 @main
 @MainActor
@@ -51,14 +52,14 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
                 }
             }
             let delay = environment["MARKA_SNAPSHOT_DELAY"].flatMap(Double.init) ?? 0.5
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { Task { @MainActor in
                 if environment["MARKA_SNAPSHOT_WINDOWS"] != nil {
                     for window in NSApp.windows where window.isVisible {
                         FileHandle.standardError.write(Data("window: \(type(of: window)) \(window.frame)\n".utf8))
                     }
                 }
                 if let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible && $0.contentViewController != nil }) {
-                    Self.writeSnapshot(of: window, to: snapshotPath, wholeWindow: environment["MARKA_SNAPSHOT_FRAME"] != nil)
+                    await Self.writeSnapshot(of: window, to: snapshotPath, wholeWindow: environment["MARKA_SNAPSHOT_FRAME"] != nil)
                 }
                 if let layoutPath = environment["MARKA_DUMP_LAYOUT"],
                    let split = (NSApp.keyWindow?.contentViewController as? DocumentContentViewController)?.split,
@@ -78,7 +79,7 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
                     try? dump.write(toFile: menuPath, atomically: true, encoding: .utf8)
                 }
                 NSApp.terminate(nil)
-            }
+            } }
         }
     }
 
@@ -98,9 +99,8 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         }.joined(separator: "\n")
     }
 
-    private static func writeSnapshot(of window: NSWindow, to path: String, wholeWindow: Bool) {
-        if ProcessInfo.processInfo.environment["MARKA_SNAPSHOT_SCREEN"] != nil {
-            guard let image = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(window.windowNumber), [.boundsIgnoreFraming]) else { return }
+    private static func writeSnapshot(of window: NSWindow, to path: String, wholeWindow: Bool) async {
+        if ProcessInfo.processInfo.environment["MARKA_SNAPSHOT_SCREEN"] != nil, let image = await screenImage(of: window) {
             let rep = NSBitmapImageRep(cgImage: image)
             try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
             return
@@ -111,6 +111,25 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         else { return }
         view.cacheDisplay(in: view.bounds, to: rep)
         try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+    }
+
+    // Captures the window as the screen shows it, which includes text views
+    // that draw nothing into a view cache. Needs the screen recording
+    // permission; without it the caller falls back to the view cache.
+    private static func screenImage(of window: NSWindow) async -> CGImage? {
+        guard CGPreflightScreenCaptureAccess() else { return nil }
+        let windowID = CGWindowID(window.windowNumber)
+        guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true),
+              let target = content.windows.first(where: { $0.windowID == windowID })
+        else { return nil }
+        let scale = window.backingScaleFactor
+        let configuration = SCStreamConfiguration()
+        configuration.width = Int(target.frame.width * scale)
+        configuration.height = Int(target.frame.height * scale)
+        configuration.showsCursor = false
+        configuration.captureResolution = .best
+        let filter = SCContentFilter(desktopIndependentWindow: target)
+        return try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

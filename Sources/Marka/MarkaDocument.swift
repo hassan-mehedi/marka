@@ -129,7 +129,7 @@ final class MarkaDocument: NSDocument {
     // AppKit reads and writes documents on the main thread unless the document
     // opts into asynchronous IO, which this one does not.
     nonisolated override func data(ofType typeName: String) throws -> Data {
-        try MainActor.assumeIsolated {
+        MainActor.assumeIsolated {
             savedText = text
             let output = usesCRLF ? text.replacingOccurrences(of: "\n", with: "\r\n") : text
             return Data(output.utf8)
@@ -148,7 +148,7 @@ final class MarkaDocument: NSDocument {
         // written back the same way.
         let usesCRLF = string.contains("\r\n")
         let normalized = usesCRLF ? string.replacingOccurrences(of: "\r\n", with: "\n") : string
-        try MainActor.assumeIsolated {
+        MainActor.assumeIsolated {
             self.usesCRLF = usesCRLF
             loadedText = normalized
             savedText = normalized
