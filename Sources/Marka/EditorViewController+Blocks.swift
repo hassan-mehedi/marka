@@ -48,13 +48,15 @@ extension EditorViewController {
         let trailing = ns.length == 0 || ns.hasSuffix("\n") ? "\n" : "\n\n"
         let definition = "\(trailing)[^\(label)]: "
 
-        guard textView.shouldChangeText(in: caret, replacementString: reference) else { return }
-        textView.textStorage?.replaceCharacters(in: caret, with: reference)
-        let end = NSRange(location: (textView.string as NSString).length, length: 0)
+        let end = NSRange(location: ns.length, length: 0)
+        guard textView.shouldChangeText(inRanges: [NSValue(range: caret), NSValue(range: end)], replacementStrings: [reference, definition]) else {
+            return
+        }
         textView.textStorage?.replaceCharacters(in: end, with: definition)
+        textView.textStorage?.replaceCharacters(in: caret, with: reference)
         textView.didChangeText()
         let target = NSRange(location: (textView.string as NSString).length, length: 0)
-        textView.setSelectedRange(target)
+        selectSource(target)
         textView.scrollRangeToVisible(target)
     }
 

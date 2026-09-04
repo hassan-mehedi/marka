@@ -28,6 +28,10 @@ final class MarkaTextView: NSTextView {
             insertText(markdown, replacementRange: selectedRange())
             return
         }
+        if let plain = NSPasteboard.general.string(forType: .string), plain.contains("\r") {
+            insertText(plain.replacingOccurrences(of: "\r\n", with: "\n"), replacementRange: selectedRange())
+            return
+        }
         super.paste(sender)
     }
 

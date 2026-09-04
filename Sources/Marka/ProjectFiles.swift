@@ -78,7 +78,8 @@ enum ProjectFiles {
         guard !needle.isEmpty else { return [] }
         var matches: [Match] = []
         for url in list(under: root) {
-            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            guard var text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            text = text.replacingOccurrences(of: "\r\n", with: "\n")
             var offset = 0
             var lineNumber = 0
             for line in text.split(separator: "\n", omittingEmptySubsequences: false) {

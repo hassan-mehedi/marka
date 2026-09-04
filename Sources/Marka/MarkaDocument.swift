@@ -7,6 +7,7 @@ final class MarkaDocument: NSDocument {
     nonisolated static let plainTextType = "public.plain-text"
 
     private var loadedText = ""
+    private var usesCRLF = false
     private weak var editor: EditorViewController?
     private weak var sidebar: SidebarViewController?
 
@@ -85,6 +86,18 @@ final class MarkaDocument: NSDocument {
         updateChangeCount(.changeDone)
     }
 
+    // Undo back to the saved text clears the edited state, because the text
+    // view owns the undo stack and NSDocument cannot count its groups.
+    func noteTextChanged(byUndo: Bool) {
+        if byUndo, text == savedText {
+            updateChangeCount(.changeCleared)
+        } else {
+            updateChangeCount(.changeDone)
+        }
+    }
+
+    private var savedText = ""
+
     func jump(to offset: Int) {
         editor?.jump(to: offset)
     }
@@ -115,7 +128,11 @@ final class MarkaDocument: NSDocument {
     // AppKit reads and writes documents on the main thread unless the document
     // opts into asynchronous IO, which this one does not.
     nonisolated override func data(ofType typeName: String) throws -> Data {
-        try MainActor.assumeIsolated { Data(text.utf8) }
+        try MainActor.assumeIsolated {
+            savedText = text
+            let output = usesCRLF ? text.replacingOccurrences(of: "\n", with: "\r\n") : text
+            return Data(output.utf8)
+        }
     }
 
     nonisolated override func read(from data: Data, ofType typeName: String) throws {
@@ -126,9 +143,15 @@ final class MarkaDocument: NSDocument {
                 userInfo: [NSLocalizedDescriptionKey: "The file is not valid UTF-8 text."]
             )
         }
+        // The editor works on LF only; files that arrived with CRLF are
+        // written back the same way.
+        let usesCRLF = string.contains("\r\n")
+        let normalized = usesCRLF ? string.replacingOccurrences(of: "\r\n", with: "\n") : string
         try MainActor.assumeIsolated {
-            loadedText = string
-            editor?.text = string
+            self.usesCRLF = usesCRLF
+            loadedText = normalized
+            savedText = normalized
+            editor?.text = normalized
         }
     }
 

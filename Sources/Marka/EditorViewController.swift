@@ -46,6 +46,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
     private(set) var textView: MarkaTextView!
     private var imageCache: [String: NSImage] = [:]
     private var pendingRemoteImages: Set<String> = []
+    private var failedRemoteImages: Set<String> = []
     private var tableImageCache: [String: NSImage] = [:]
     private var layoutWidth: CGFloat = 0
     private var pendingWidthRefresh: DispatchWorkItem?
@@ -66,6 +67,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
             textView.string = newValue
             imageCache.removeAll()
             tableImageCache.removeAll()
+            failedRemoteImages.removeAll()
             reloadDerivedState()
         }
     }
@@ -219,7 +221,8 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
 
     func textDidChange(_ notification: Notification) {
         highlighter.handleEdit()
-        document?.updateChangeCount(.changeDone)
+        let undoManager = textView.undoManager
+        document?.noteTextChanged(byUndo: undoManager?.isUndoing == true || undoManager?.isRedoing == true)
         scheduleDerivedStateUpdate()
         recenterCaret()
         offerCompletionsIfNeeded()
@@ -320,7 +323,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
     func jump(to location: Int) {
         let length = (textView.string as NSString).length
         let target = NSRange(location: min(location, length), length: 0)
-        textView.setSelectedRange(target)
+        selectSource(target)
         textView.scrollRangeToVisible(target)
         view.window?.makeFirstResponder(textView)
     }
@@ -419,29 +422,64 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         guard selection.location <= ns.length else { return }
         let paragraph = ns.paragraphRange(for: selection)
         guard paragraph.length > 0, !isLiteralParagraph(paragraph) else { return }
-        guard !selectionTouches(paragraph, lastSelection) else { return }
+        // Inside the caret's own paragraph the markers are already revealed
+        // and only math stays collapsed, so a click there remaps by math alone.
+        let wasInside = selectionTouches(paragraph, lastSelection)
+        if wasInside {
+            guard let event = NSApp.currentEvent, event.type == .leftMouseDown || event.type == .leftMouseUp else { return }
+        }
 
         let column = selection.location - paragraph.location
         guard column > 0 else { return }
         var line = ns.substring(with: paragraph)
         if line.hasSuffix("\n") { line.removeLast() }
-        let source = min(Self.sourceOffset(forDisplayColumn: column, in: line), (line as NSString).length)
+        let replacements = Self.displayReplacements(in: line, markersHidden: !wasInside, mathCollapses: { [weak self] math in
+            self?.mathRenders(math, in: line) ?? true
+        })
+        let source = min(Self.sourceOffset(forDisplayColumn: column, replacements: replacements), (line as NSString).length)
         guard source != column else { return }
+        selectSource(NSRange(location: paragraph.location + source, length: 0))
+    }
 
+    // Selects a range given in source offsets, bypassing the display-column
+    // remap that a click into a collapsed paragraph needs.
+    func selectSource(_ range: NSRange) {
         correctingSelection = true
-        textView.setSelectedRange(NSRange(location: paragraph.location + source, length: 0))
+        textView.setSelectedRange(range)
         correctingSelection = false
+        lastSelection = range
+    }
+
+    private func mathRenders(_ math: MathSpan, in line: String) -> Bool {
+        MathRenderer.shared.image(
+            latex: (line as NSString).substring(with: math.content),
+            fontSize: ThemeManager.shared.current.baseFont.pointSize,
+            display: false,
+            color: mathColor
+        ) != nil
     }
 
     private static let autoPairs: [String: String] = [
         "(": ")", "[": "]", "{": "}", "\"": "\"", "*": "*", "_": "_", "`": "`", "~": "~"
     ]
 
-    func textView(_ view: NSTextView, shouldChangeTextIn affectedRange: NSRange, replacementString: String?) -> Bool {
-        guard let replacement = replacementString else { return true }
-        let selection = textView.selectedRange()
+    // Auto pairing and smart punctuation react to a typed key, not to a
+    // paste or an undo that happens to insert a single character.
+    private func isTyped(_ replacement: String) -> Bool {
+        guard let event = NSApp.currentEvent else { return true }
+        switch event.type {
+        case .keyDown: return event.characters == replacement && !event.modifierFlags.contains(.command)
+        case .leftMouseUp, .leftMouseDown, .rightMouseUp, .rightMouseDown: return false
+        default: return true
+        }
+    }
 
-        if smartPunctuation, selection.length == 0, NSEqualRanges(affectedRange, selection),
+    func textView(_ view: NSTextView, shouldChangeTextIn affectedRange: NSRange, replacementString: String?) -> Bool {
+        guard let replacement = replacementString, isTyped(replacement) else { return true }
+        let selection = textView.selectedRange()
+        guard NSEqualRanges(affectedRange, selection) else { return true }
+
+        if smartPunctuation, selection.length == 0,
            let smart = smartReplacement(for: replacement, at: selection.location) {
             replace(
                 smart.range,
@@ -451,7 +489,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
             return false
         }
 
-        if selection.length > 0, NSEqualRanges(affectedRange, selection), let closing = Self.autoPairs[replacement] {
+        if selection.length > 0, let closing = Self.autoPairs[replacement] {
             let selected = (textView.string as NSString).substring(with: selection)
             replace(
                 selection,
@@ -474,7 +512,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         if selection.length == 0, replacement == ")" || replacement == "]" || replacement == "}" {
             let ns = textView.string as NSString
             if selection.location < ns.length, ns.substring(with: NSRange(location: selection.location, length: 1)) == replacement {
-                textView.setSelectedRange(NSRange(location: selection.location + 1, length: 0))
+                selectSource(NSRange(location: selection.location + 1, length: 0))
                 return false
             }
         }
@@ -669,7 +707,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         guard textView.shouldChangeText(in: range, replacementString: string) else { return }
         textView.textStorage?.replaceCharacters(in: range, with: string)
         textView.didChangeText()
-        textView.setSelectedRange(newSelection)
+        selectSource(newSelection)
     }
 
     func replaceKeepingCaret(_ range: NSRange, with string: String) {
@@ -678,7 +716,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         textView.textStorage?.replaceCharacters(in: range, with: string)
         textView.didChangeText()
         let delta = (string as NSString).length - range.length
-        textView.setSelectedRange(NSRange(location: max(selection.location + delta, 0), length: selection.length))
+        selectSource(NSRange(location: max(selection.location + delta, 0), length: selection.length))
     }
 
     private func insertPastedImage(_ data: Data) -> Bool {
@@ -738,13 +776,16 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
     // Remote images load once in the background; the line shows its source
     // until the download lands, then the paragraph refreshes.
     private func fetchRemoteImage(at path: String) {
-        guard !pendingRemoteImages.contains(path), let url = URL(string: path) else { return }
+        guard !pendingRemoteImages.contains(path), !failedRemoteImages.contains(path), let url = URL(string: path) else { return }
         pendingRemoteImages.insert(path)
         Task { [weak self] in
             let image = await Self.downloadImage(from: url)
             guard let self else { return }
             pendingRemoteImages.remove(path)
-            guard let image else { return }
+            guard let image else {
+                failedRemoteImages.insert(path)
+                return
+            }
             imageCache[path] = image
             refreshDisplayParagraphs()
         }
@@ -929,16 +970,22 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
 
     // Source ranges that render with a different length: markers vanish,
     // an inline math span becomes a single attachment character.
-    nonisolated static func displayReplacements(in line: String) -> [(range: NSRange, displayLength: Int)] {
+    nonisolated static func displayReplacements(
+        in line: String,
+        markersHidden: Bool = true,
+        mathCollapses: (MathSpan) -> Bool = { _ in true }
+    ) -> [(range: NSRange, displayLength: Int)] {
         var replacements: [(NSRange, Int)] = []
-        if case let .heading(_, marker) = MarkdownParser.blockKind(of: line) {
-            replacements.append((marker, 0))
+        if markersHidden {
+            if case let .heading(_, marker) = MarkdownParser.blockKind(of: line) {
+                replacements.append((marker, 0))
+            }
+            for span in MarkdownParser.inlineSpans(in: line) {
+                replacements.append((span.openMarker, 0))
+                replacements.append((span.closeMarker, 0))
+            }
         }
-        for span in MarkdownParser.inlineSpans(in: line) {
-            replacements.append((span.openMarker, 0))
-            replacements.append((span.closeMarker, 0))
-        }
-        replacements += MarkdownParser.inlineMathSpans(in: line).map { ($0.range, 1) }
+        replacements += MarkdownParser.inlineMathSpans(in: line).filter(mathCollapses).map { ($0.range, 1) }
         replacements.sort { $0.0.location < $1.0.location }
 
         var result: [(NSRange, Int)] = []
@@ -950,9 +997,13 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
     }
 
     nonisolated static func sourceOffset(forDisplayColumn column: Int, in line: String) -> Int {
+        sourceOffset(forDisplayColumn: column, replacements: displayReplacements(in: line))
+    }
+
+    nonisolated static func sourceOffset(forDisplayColumn column: Int, replacements: [(range: NSRange, displayLength: Int)]) -> Int {
         var source = 0
         var display = 0
-        for (range, displayLength) in displayReplacements(in: line) {
+        for (range, displayLength) in replacements {
             let visible = range.location - source
             if display + visible >= column {
                 return source + (column - display)
@@ -1029,7 +1080,9 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         }) else { return nil }
         guard !selectionTouches(block.fullRange, selection) else { return nil }
 
-        let source = (textView.string as NSString).substring(with: block.range)
+        let ns = textView.string as NSString
+        guard NSMaxRange(block.range) <= ns.length else { return nil }
+        let source = ns.substring(with: block.range)
         let dark = themeIsDark
         guard let image = MermaidRenderer.shared.image(for: source, dark: dark, onReady: { [weak self] in
             self?.refreshDisplayParagraphs()
@@ -1051,8 +1104,9 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         }
         guard !selectionTouches(block.fullRange, selection) else { return nil }
 
-        let latex = (textView.string as NSString).substring(with: block.range)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let ns = textView.string as NSString
+        guard NSMaxRange(block.range) <= ns.length else { return nil }
+        let latex = ns.substring(with: block.range).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !latex.isEmpty,
               let image = MathRenderer.shared.image(
                   latex: latex,
