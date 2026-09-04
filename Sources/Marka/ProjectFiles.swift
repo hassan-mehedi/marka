@@ -14,6 +14,7 @@ enum ProjectFiles {
         ) else { return [] }
         var files: [URL] = []
         for case let url as URL in enumerator {
+            if Task.isCancelled { return [] }
             let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
             if values?.isDirectory == true {
                 if skippedDirectories.contains(url.lastPathComponent) { enumerator.skipDescendants() }
@@ -78,6 +79,7 @@ enum ProjectFiles {
         guard !needle.isEmpty else { return [] }
         var matches: [Match] = []
         for url in list(under: root) {
+            if Task.isCancelled { return [] }
             guard var text = try? String(contentsOf: url, encoding: .utf8) else { continue }
             text = text.replacingOccurrences(of: "\r\n", with: "\n")
             var offset = 0

@@ -18,7 +18,7 @@ final class SearchViewController: NSViewController, NSSearchFieldDelegate, NSOut
     private var searchField: NSSearchField!
     private var outlineView: NSOutlineView!
     private var statusLabel: NSTextField!
-    private var searchGeneration = 0
+    private var searchTask: Task<Void, Never>?
 
     override func loadView() {
         let searchField = NSSearchField()
@@ -88,20 +88,20 @@ final class SearchViewController: NSViewController, NSSearchFieldDelegate, NSOut
 
     func runSearch() {
         let query = searchField.stringValue
-        searchGeneration += 1
-        let generation = searchGeneration
+        searchTask?.cancel()
         guard let rootURL, query.trimmingCharacters(in: .whitespaces).count >= 2 else {
             show([], status: rootURL == nil ? "Save the document to search its folder." : "")
             return
         }
         statusLabel.stringValue = "Searching…"
-        Task.detached(priority: .userInitiated) {
+        searchTask = Task.detached(priority: .userInitiated) { [weak self] in
             let matches = ProjectFiles.search(query, under: rootURL)
+            guard !Task.isCancelled else { return }
             await MainActor.run {
-                guard generation == self.searchGeneration else { return }
-                self.show(matches, status: matches.isEmpty
+                let files = Set(matches.map(\.url)).count
+                self?.show(matches, status: matches.isEmpty
                     ? "No matches"
-                    : "\(matches.count) match\(matches.count == 1 ? "" : "es") in \(Set(matches.map(\.url)).count) file\(Set(matches.map(\.url)).count == 1 ? "" : "s")")
+                    : "\(matches.count) match\(matches.count == 1 ? "" : "es") in \(files) file\(files == 1 ? "" : "s")")
             }
         }
     }

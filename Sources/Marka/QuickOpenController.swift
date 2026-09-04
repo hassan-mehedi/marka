@@ -11,6 +11,7 @@ final class QuickOpenController: NSWindowController, NSSearchFieldDelegate, NSTa
     private var root: URL?
     private var candidates: [URL] = []
     private var results: [URL] = []
+    private var listing: Task<Void, Never>?
 
     private init() {
         let panel = NSPanel(
@@ -35,9 +36,23 @@ final class QuickOpenController: NSWindowController, NSSearchFieldDelegate, NSTa
 
     func show(root: URL?) {
         self.root = root
-        candidates = root.map(ProjectFiles.list(under:)) ?? NSDocumentController.shared.recentDocumentURLs
         searchField.stringValue = ""
-        filter()
+        listing?.cancel()
+        if let root {
+            // Walking a big folder takes a while; the panel opens at once and
+            // fills in when the listing lands.
+            candidates = []
+            filter()
+            listing = Task { [weak self] in
+                let files = await Task.detached { ProjectFiles.list(under: root) }.value
+                guard !Task.isCancelled, let self else { return }
+                candidates = files
+                filter()
+            }
+        } else {
+            candidates = NSDocumentController.shared.recentDocumentURLs
+            filter()
+        }
         guard let window else { return }
         if let screen = NSScreen.main {
             let frame = screen.visibleFrame
