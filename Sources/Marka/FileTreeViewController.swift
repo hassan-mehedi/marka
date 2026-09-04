@@ -15,6 +15,16 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
     }
 
     private static let fileExtensions = ProjectFiles.extensions
+    private static let folderIcon = NSWorkspace.shared.icon(for: .folder)
+    private static var iconsByExtension: [String: NSImage] = [:]
+
+    private static func icon(for url: URL) -> NSImage {
+        let ext = url.pathExtension.lowercased()
+        if let cached = iconsByExtension[ext] { return cached }
+        let icon = NSWorkspace.shared.icon(for: UTType(filenameExtension: ext) ?? .plainText)
+        iconsByExtension[ext] = icon
+        return icon
+    }
 
     var rootURL: URL? {
         didSet {
@@ -72,11 +82,26 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
         reload()
     }
 
+    // Folders the user opened stay open across a reload triggered by a file
+    // change or a return to this pane.
     func reload() {
         guard isViewLoaded else { return }
+        var expanded = Set<URL>()
+        for row in 0..<outlineView.numberOfRows {
+            if let node = outlineView.item(atRow: row) as? Node, outlineView.isItemExpanded(node) {
+                expanded.insert(node.url)
+            }
+        }
         rootNodes = rootURL.map(Self.children(of:)) ?? []
         placeholder.isHidden = rootURL != nil
         outlineView.reloadData()
+        guard !expanded.isEmpty else { return }
+        var pending = rootNodes
+        while let node = pending.popLast() {
+            guard node.isDirectory, expanded.contains(node.url) else { continue }
+            outlineView.expandItem(node)
+            pending.append(contentsOf: nodes(for: node))
+        }
     }
 
     private static func children(of url: URL) -> [Node] {
@@ -121,28 +146,10 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
 
     func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
         guard let node = item as? Node else { return nil }
-
-        let icon = NSImageView()
-        icon.image = NSWorkspace.shared.icon(forFile: node.url.path)
-        icon.translatesAutoresizingMaskIntoConstraints = false
-
-        let field = NSTextField(labelWithString: node.url.lastPathComponent)
-        field.lineBreakMode = .byTruncatingTail
-        field.font = .systemFont(ofSize: 12)
-        field.translatesAutoresizingMaskIntoConstraints = false
-
-        let cell = NSTableCellView()
-        cell.addSubview(icon)
-        cell.addSubview(field)
-        NSLayoutConstraint.activate([
-            icon.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
-            icon.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 16),
-            icon.heightAnchor.constraint(equalToConstant: 16),
-            field.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 5),
-            field.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -4),
-            field.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-        ])
+        let cell = LabelCellView.dequeue(from: outlineView, identifier: "file", showsIcon: true)
+        cell.icon.image = node.isDirectory ? Self.folderIcon : Self.icon(for: node.url)
+        cell.label.stringValue = node.url.lastPathComponent
+        cell.label.font = .systemFont(ofSize: 12)
         return cell
     }
 

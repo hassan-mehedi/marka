@@ -39,9 +39,11 @@ enum ProjectFiles {
     // query character is tried as a start so "setup" finds the run in
     // "docs/guides/setup.md" instead of scattered letters.
     nonisolated static func fuzzyScore(query: String, candidate: String) -> Int? {
-        let query = Array(query.lowercased())
+        fuzzyScore(query: Array(query.lowercased()), key: Array(candidate.lowercased()))
+    }
+
+    nonisolated static func fuzzyScore(query: [Character], key text: [Character]) -> Int? {
         guard !query.isEmpty else { return 0 }
-        let text = Array(candidate.lowercased())
         var best: Int?
         for start in text.indices where text[start] == query[0] {
             guard let score = greedyScore(query: query, text: text, from: start) else { break }
@@ -65,7 +67,7 @@ enum ProjectFiles {
         return score - (text.count - query.count) / 8
     }
 
-    struct Match: Equatable {
+    struct Match: Hashable {
         var url: URL
         var line: Int
         var offset: Int
@@ -75,23 +77,40 @@ enum ProjectFiles {
     // Case-insensitive substring search across the folder, capped so a huge
     // tree cannot flood the sidebar.
     nonisolated static func search(_ query: String, under root: URL, limit: Int = 500) -> [Match] {
+        search(query, in: list(under: root), limit: limit)
+    }
+
+    // One hit per matching line. The file is searched as a whole and line
+    // numbers are counted up to each hit, so no line is copied out unless it
+    // matches.
+    nonisolated static func search(_ query: String, in files: [URL], limit: Int = 500) -> [Match] {
         let needle = query.trimmingCharacters(in: .whitespaces)
         guard !needle.isEmpty else { return [] }
         var matches: [Match] = []
-        for url in list(under: root) {
+        for url in files {
             if Task.isCancelled { return [] }
             guard var text = try? String(contentsOf: url, encoding: .utf8) else { continue }
             text = text.replacingOccurrences(of: "\r\n", with: "\n")
-            var offset = 0
-            var lineNumber = 0
-            for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-                lineNumber += 1
-                let lineText = String(line)
-                if lineText.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) != nil {
-                    matches.append(Match(url: url, line: lineNumber, offset: offset, preview: lineText.trimmingCharacters(in: .whitespaces)))
-                    if matches.count >= limit { return matches }
+            let ns = text as NSString
+            var lineNumber = 1
+            var counted = 0
+            var searchFrom = 0
+            while searchFrom < ns.length {
+                let hit = ns.range(
+                    of: needle,
+                    options: [.caseInsensitive, .diacriticInsensitive],
+                    range: NSRange(location: searchFrom, length: ns.length - searchFrom)
+                )
+                guard hit.location != NSNotFound else { break }
+                for index in counted..<hit.location where ns.character(at: index) == 0x0A {
+                    lineNumber += 1
                 }
-                offset += (lineText as NSString).length + 1
+                counted = hit.location
+                let lineRange = ns.lineRange(for: NSRange(location: hit.location, length: 0))
+                let preview = ns.substring(with: lineRange).trimmingCharacters(in: .whitespacesAndNewlines)
+                matches.append(Match(url: url, line: lineNumber, offset: lineRange.location, preview: preview))
+                if matches.count >= limit { return matches }
+                searchFrom = NSMaxRange(lineRange)
             }
         }
         return matches

@@ -40,3 +40,22 @@ private func makeTree() throws -> URL {
     #expect(setup?.preview == "hello again")
     #expect(ProjectFiles.search("  ", under: root).isEmpty)
 }
+
+@Test func searchReportsLineNumbersAndOffsetsPerMatchingLine() throws {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let file = folder.appendingPathComponent("a.md")
+    try "first\r\nsecond Needle needle\n\n  needle at end".write(to: file, atomically: true, encoding: .utf8)
+    let matches = ProjectFiles.search("needle", in: [file])
+    #expect(matches.map(\.line) == [2, 4])
+    #expect(matches.map(\.offset) == [6, 28])
+    #expect(matches.map(\.preview) == ["second Needle needle", "needle at end"])
+    #expect(ProjectFiles.search("needle", under: folder).map(\.offset) == matches.map(\.offset))
+}
+
+@Test func fuzzyScoreWithPrecomputedKeyMatchesStringVersion() {
+    let candidate = "docs/guides/setup.md"
+    #expect(ProjectFiles.fuzzyScore(query: "setup", candidate: candidate)
+        == ProjectFiles.fuzzyScore(query: Array("setup"), key: Array(candidate.lowercased())))
+}

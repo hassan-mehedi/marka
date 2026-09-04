@@ -123,10 +123,24 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
         // math block, so every collapsed paragraph in it rebuilds together.
         let old = expandToBlock(ns.paragraphRange(for: clamp(previousSelection, to: ns.length)))
         let new = expandToBlock(ns.paragraphRange(for: clamp(selection, to: ns.length)))
+        if NSEqualRanges(old, new), isPlain(new, ns: ns) { return }
         restyle(paragraphsIn: old, storage: storage)
         if !NSEqualRanges(old, new) {
             restyle(paragraphsIn: new, storage: storage)
         }
+    }
+
+    // A paragraph with nothing that reveals or hides around the caret, so a
+    // caret move inside it changes no attributes.
+    private func isPlain(_ paragraph: NSRange, ns: NSString) -> Bool {
+        guard !NSEqualRanges(paragraph, NSRange(location: 0, length: 0)) else { return true }
+        var line = ns.substring(with: paragraph)
+        if line.hasSuffix("\n") { line.removeLast() }
+        guard !line.contains("\n") else { return false }
+        let info = LineCache.info(for: line)
+        guard case .paragraph = info.blockKind else { return false }
+        return info.inlineSpans.isEmpty && info.inlineMath.isEmpty && info.displayMath == nil
+            && info.footnoteReferences.isEmpty && info.pipes.isEmpty && !info.isTOC && info.imagePath == nil
     }
 
     private func expandToBlock(_ range: NSRange) -> NSRange {

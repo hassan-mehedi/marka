@@ -9,8 +9,8 @@ final class QuickOpenController: NSWindowController, NSSearchFieldDelegate, NSTa
     private var searchField: NSSearchField!
     private var tableView: NSTableView!
     private var root: URL?
-    private var candidates: [URL] = []
-    private var results: [URL] = []
+    private var candidates: [ProjectIndex.Entry] = []
+    private var results: [ProjectIndex.Entry] = []
     private var listing: Task<Void, Never>?
 
     private init() {
@@ -40,17 +40,20 @@ final class QuickOpenController: NSWindowController, NSSearchFieldDelegate, NSTa
         listing?.cancel()
         if let root {
             // Walking a big folder takes a while; the panel opens at once and
-            // fills in when the listing lands.
+            // fills in when the listing lands. The index keeps it for next time.
             candidates = []
             filter()
             listing = Task { [weak self] in
-                let files = await Task.detached { ProjectFiles.list(under: root) }.value
+                let entries = await ProjectIndex.index(for: root).entries()
                 guard !Task.isCancelled, let self else { return }
-                candidates = files
+                candidates = entries
                 filter()
             }
         } else {
-            candidates = NSDocumentController.shared.recentDocumentURLs
+            candidates = NSDocumentController.shared.recentDocumentURLs.map { url in
+                let name = url.lastPathComponent
+                return ProjectIndex.Entry(url: url, displayPath: name, searchKey: Array(name.lowercased()))
+            }
             filter()
         }
         guard let window else { return }
@@ -138,13 +141,13 @@ final class QuickOpenController: NSWindowController, NSSearchFieldDelegate, NSTa
     }
 
     private func filter() {
-        let query = searchField.stringValue
+        let query = Array(searchField.stringValue.lowercased())
         if query.isEmpty {
             results = Array(candidates.prefix(50))
         } else {
             results = candidates
-                .compactMap { url -> (URL, Int)? in
-                    ProjectFiles.fuzzyScore(query: query, candidate: displayPath(for: url)).map { (url, $0) }
+                .compactMap { entry -> (ProjectIndex.Entry, Int)? in
+                    ProjectFiles.fuzzyScore(query: query, key: entry.searchKey).map { (entry, $0) }
                 }
                 .sorted { $0.1 > $1.1 }
                 .prefix(50)
@@ -154,15 +157,10 @@ final class QuickOpenController: NSWindowController, NSSearchFieldDelegate, NSTa
         select(row: 0)
     }
 
-    private func displayPath(for url: URL) -> String {
-        guard let root else { return url.lastPathComponent }
-        return ProjectFiles.relativePath(of: url, to: root)
-    }
-
     @objc private func openSelected() {
         let row = tableView.selectedRow >= 0 ? tableView.selectedRow : tableView.clickedRow
         guard results.indices.contains(row) else { return }
-        let url = results[row]
+        let url = results[row].url
         window?.orderOut(nil)
         NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, _ in }
     }
@@ -172,31 +170,18 @@ final class QuickOpenController: NSWindowController, NSSearchFieldDelegate, NSTa
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        let url = results[row]
-        let name = NSTextField(labelWithString: url.lastPathComponent)
-        name.font = .systemFont(ofSize: 13, weight: .medium)
-        name.lineBreakMode = .byTruncatingTail
-        let folder = root.map { ProjectFiles.relativePath(of: url.deletingLastPathComponent(), to: $0) }
-            ?? url.deletingLastPathComponent().path
-        let path = NSTextField(labelWithString: folder)
-        path.font = .systemFont(ofSize: 11)
-        path.textColor = .secondaryLabelColor
-        path.lineBreakMode = .byTruncatingMiddle
-        path.isHidden = folder.isEmpty || folder == root?.path
-
-        let stack = NSStackView(views: [name, path])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 2
-        stack.translatesAutoresizingMaskIntoConstraints = false
-
-        let cell = NSTableCellView()
-        cell.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -8),
-            stack.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-        ])
+        let entry = results[row]
+        let cell = LabelCellView.dequeue(from: tableView, identifier: "file", showsDetail: true, indent: 8)
+        cell.label.stringValue = entry.url.lastPathComponent
+        cell.label.font = .systemFont(ofSize: 13, weight: .medium)
+        let folder: String
+        if root != nil {
+            folder = entry.displayPath.contains("/") ? String(entry.displayPath.dropLast(entry.url.lastPathComponent.count + 1)) : ""
+        } else {
+            folder = entry.url.deletingLastPathComponent().path
+        }
+        cell.detail.stringValue = folder
+        cell.detail.isHidden = folder.isEmpty
         return cell
     }
 }

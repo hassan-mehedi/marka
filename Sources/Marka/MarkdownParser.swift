@@ -69,7 +69,7 @@ struct MathBlock: Equatable, Sendable {
 }
 
 struct TableBlock: Equatable, Sendable {
-    enum Alignment: Equatable, Sendable {
+    enum Alignment: Hashable, Sendable {
         case left, center, right
     }
 

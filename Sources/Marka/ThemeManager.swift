@@ -31,7 +31,18 @@ final class ThemeManager {
     }
 
     var themes: [Theme] {
-        Self.merge(builtIn: Theme.builtIn, user: Self.loadUserThemes())
+        Self.merge(builtIn: Theme.builtIn, user: Self.userThemes())
+    }
+
+    // User themes are re-read only when the folder's modification date moves.
+    private static var userThemeCache: (stamp: Date?, themes: [Theme])?
+
+    private static func userThemes() -> [Theme] {
+        let stamp = (try? FileManager.default.attributesOfItem(atPath: userThemesDirectory.path))?[.modificationDate] as? Date
+        if let cache = userThemeCache, cache.stamp == stamp { return cache.themes }
+        let themes = loadUserThemes()
+        userThemeCache = (stamp, themes)
+        return themes
     }
 
     // Names are how themes are picked, so each appears once: a user theme
@@ -47,7 +58,7 @@ final class ThemeManager {
 
     private init() {
         let saved = UserDefaults.standard.string(forKey: Self.defaultsKey)
-        let available = Self.merge(builtIn: Theme.builtIn, user: Self.loadUserThemes())
+        let available = Self.merge(builtIn: Theme.builtIn, user: Self.userThemes())
         baseTheme = available.first { $0.name == saved } ?? .systemTheme
         let savedScale = UserDefaults.standard.double(forKey: Self.scaleKey)
         fontScale = Self.scaleSteps.contains(savedScale) ? savedScale : 1

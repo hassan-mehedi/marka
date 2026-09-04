@@ -94,15 +94,15 @@ final class SearchViewController: NSViewController, NSSearchFieldDelegate, NSOut
             return
         }
         statusLabel.stringValue = "Searching…"
-        searchTask = Task.detached(priority: .userInitiated) { [weak self] in
-            let matches = ProjectFiles.search(query, under: rootURL)
+        searchTask = Task { [weak self] in
+            let files = await ProjectIndex.index(for: rootURL).entries().map(\.url)
             guard !Task.isCancelled else { return }
-            await MainActor.run {
-                let files = Set(matches.map(\.url)).count
-                self?.show(matches, status: matches.isEmpty
-                    ? "No matches"
-                    : "\(matches.count) match\(matches.count == 1 ? "" : "es") in \(files) file\(files == 1 ? "" : "s")")
-            }
+            let matches = await Task.detached(priority: .userInitiated) { ProjectFiles.search(query, in: files) }.value
+            guard !Task.isCancelled, let self else { return }
+            let fileCount = Set(matches.map(\.url)).count
+            show(matches, status: matches.isEmpty
+                ? "No matches"
+                : "\(matches.count) match\(matches.count == 1 ? "" : "es") in \(fileCount) file\(fileCount == 1 ? "" : "s")")
         }
     }
 
@@ -134,28 +134,20 @@ final class SearchViewController: NSViewController, NSSearchFieldDelegate, NSOut
     }
 
     func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
-        let field: NSTextField
         if let group = item as? FileGroup {
-            let name = rootURL.map { ProjectFiles.relativePath(of: group.url, to: $0) } ?? group.url.lastPathComponent
-            field = NSTextField(labelWithString: name)
-            field.font = .systemFont(ofSize: 12, weight: .semibold)
-        } else if let match = item as? ProjectFiles.Match {
-            field = NSTextField(labelWithString: "\(match.line): \(match.preview)")
-            field.font = .systemFont(ofSize: 11)
-            field.textColor = .secondaryLabelColor
-        } else {
-            return nil
+            let cell = LabelCellView.dequeue(from: outlineView, identifier: "group")
+            cell.label.stringValue = rootURL.map { ProjectFiles.relativePath(of: group.url, to: $0) } ?? group.url.lastPathComponent
+            cell.label.font = .systemFont(ofSize: 12, weight: .semibold)
+            return cell
         }
-        field.lineBreakMode = .byTruncatingTail
-        field.translatesAutoresizingMaskIntoConstraints = false
-        let cell = NSTableCellView()
-        cell.addSubview(field)
-        NSLayoutConstraint.activate([
-            field.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
-            field.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -4),
-            field.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-        ])
-        return cell
+        if let match = item as? ProjectFiles.Match {
+            let cell = LabelCellView.dequeue(from: outlineView, identifier: "match")
+            cell.label.stringValue = "\(match.line): \(match.preview)"
+            cell.label.font = .systemFont(ofSize: 11)
+            cell.label.textColor = .secondaryLabelColor
+            return cell
+        }
+        return nil
     }
 
     @objc private func rowClicked() {

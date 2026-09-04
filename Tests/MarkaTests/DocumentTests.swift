@@ -54,11 +54,10 @@ import Testing
     }
     #expect(table.numberOfRows == 2)
 
-    guard let cell = outline.tableView(table, viewFor: table.tableColumns.first, row: 1) as? NSTableCellView,
-          let label = cell.subviews.compactMap({ $0 as? NSTextField }).first
-    else {
+    guard let cell = outline.tableView(table, viewFor: table.tableColumns.first, row: 1) as? LabelCellView else {
         Issue.record("expected a labelled cell view")
         return
     }
-    #expect(label.stringValue == "Two")
+    #expect(cell.label.stringValue == "Two")
+    #expect(cell.indent == 16)
 }

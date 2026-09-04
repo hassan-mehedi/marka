@@ -47,18 +47,10 @@ final class OutlineViewController: NSViewController, NSTableViewDataSource, NSTa
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let item = items[row]
-        let field = NSTextField(labelWithString: item.title)
-        field.lineBreakMode = .byTruncatingTail
-        field.font = .systemFont(ofSize: 12, weight: item.level == 1 ? .semibold : .regular)
-        field.translatesAutoresizingMaskIntoConstraints = false
-
-        let cell = NSTableCellView()
-        cell.addSubview(field)
-        NSLayoutConstraint.activate([
-            field.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: CGFloat(4 + (item.level - 1) * 12)),
-            field.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -4),
-            field.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
-        ])
+        let cell = LabelCellView.dequeue(from: tableView, identifier: "heading")
+        cell.label.stringValue = item.title
+        cell.label.font = .systemFont(ofSize: 12, weight: item.level == 1 ? .semibold : .regular)
+        cell.indent = CGFloat(4 + (item.level - 1) * 12)
         return cell
     }
 

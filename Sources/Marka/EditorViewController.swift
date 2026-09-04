@@ -47,7 +47,14 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
     private var imageCache: [String: NSImage] = [:]
     private var pendingRemoteImages: Set<String> = []
     private var failedRemoteImages: Set<String> = []
-    private var tableImageCache: [String: NSImage] = [:]
+    private struct TableImageKey: Hashable {
+        let theme: String
+        let width: Int
+        let alignments: [TableBlock.Alignment]
+        let rows: [[String]]
+    }
+
+    private var tableImageCache: [TableImageKey: NSImage] = [:]
     private var layoutWidth: CGFloat = 0
     private var pendingWidthRefresh: DispatchWorkItem?
     private var pendingDerivedUpdate: DispatchWorkItem?
@@ -1195,7 +1202,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
     private func tableImage(for table: TableBlock) -> NSImage {
         let theme = ThemeManager.shared.current
         let maxWidth = max(120, textView.bounds.width - textView.textContainerInset.width * 2 - 24)
-        let key = "\(theme.name)|\(Int(maxWidth))|\(table.alignments)|\(table.rows)"
+        let key = TableImageKey(theme: theme.name, width: Int(maxWidth), alignments: table.alignments, rows: table.rows)
         if let cached = tableImageCache[key] { return cached }
         let rows = table.rows.enumerated().map { index, row in
             row.map { highlighter.inlineStyled($0, bold: index == 0) }
