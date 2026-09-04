@@ -10,8 +10,12 @@ final class SidebarViewController: NSViewController {
         didSet {
             fileTree.rootURL = rootURL
             search.rootURL = rootURL
+            watcher = rootURL.map { url in
+                FolderWatcher(url: url) { [weak self] in self?.fileTree.reload() }
+            }
         }
     }
+    private var watcher: FolderWatcher?
     private var picker: NSSegmentedControl!
     private var container: NSView!
 
