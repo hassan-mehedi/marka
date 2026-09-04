@@ -57,3 +57,18 @@ import Testing
     #expect(HTMLToMarkdown.markdown(from: "<p>See <a href=\"https://a.b\">https://a.b</a></p>") == "See https://a.b")
     #expect(HTMLToMarkdown.decodeEntities("&#65;&#x42;&unknown; &lt;") == "AB&unknown; <")
 }
+
+@Test func htmlToMarkdownClosesUnterminatedCells() {
+    let markdown = HTMLToMarkdown.markdown(from: "<table><tr><td>a<td>b</tr></table><p>after</p>")
+    #expect(markdown.contains("| a   | b   |"))
+    #expect(markdown.hasSuffix("after"))
+}
+
+@Test func htmlToMarkdownReadsLanguageFromCodeTag() {
+    let markdown = HTMLToMarkdown.markdown(from: "<pre><code class=\"language-swift\">let a = 1</code></pre>")
+    #expect(markdown.hasPrefix("```swift\nlet a = 1\n```"))
+}
+
+@Test func htmlToMarkdownMovesLeadingSpaceOutOfEmphasis() {
+    #expect(HTMLToMarkdown.markdown(from: "text<b> bold</b>") == "text **bold**")
+}

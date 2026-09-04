@@ -38,6 +38,7 @@ enum HTMLToMarkdown {
         private var tableHeaderRowCount = 0
         private var inHeaderCell = false
         private var pendingBlockBreak = false
+        private var openMarkerEnd: String.Index?
 
         mutating func consume(_ token: Token) {
             switch token {
@@ -68,8 +69,17 @@ enum HTMLToMarkdown {
                 output += raw
                 return
             }
-            let text = collapse(raw)
+            var text = collapse(raw)
             guard !text.isEmpty else { return }
+            // "** bold**" is not bold in Markdown; move the space outside.
+            if let end = openMarkerEnd, end == output.endIndex, text.hasPrefix(" "),
+               let marker = ["**", "~~", "*"].first(where: { output.hasSuffix($0) }) {
+                text = String(text.drop(while: { $0 == " " }))
+                output.removeLast(marker.count)
+                if !output.hasSuffix(" "), !output.isEmpty { output += " " }
+                output += marker
+            }
+            openMarkerEnd = nil
             if pendingBlockBreak {
                 startBlock()
             }
@@ -105,6 +115,10 @@ enum HTMLToMarkdown {
         private mutating func open(_ name: String, _ attributes: [String: String]) {
             if skipped.contains(name) { skipDepth += 1; return }
             guard skipDepth == 0 else { return }
+            // A cell without its closing tag ends when the next cell or row starts.
+            if tableCell != nil, ["th", "td", "tr", "table"].contains(name) {
+                close("td")
+            }
             if tableCell != nil {
                 switch name {
                 case "br": tableCell! += " "
@@ -130,19 +144,23 @@ enum HTMLToMarkdown {
                 output += "---\n\n"
             case "strong", "b":
                 output += "**"
+                openMarkerEnd = output.endIndex
             case "em", "i":
                 output += "*"
+                openMarkerEnd = output.endIndex
             case "del", "s", "strike":
                 output += "~~"
+                openMarkerEnd = output.endIndex
             case "code":
-                if preDepth == 0 { output += "`" }
+                if preDepth == 0 {
+                    output += "`"
+                } else if output.hasSuffix("```\n"), let language = Self.language(in: attributes) {
+                    output.removeLast()
+                    output += language + "\n"
+                }
             case "pre":
                 startBlock()
-                let language = (attributes["class"] ?? "")
-                    .split(separator: " ")
-                    .first { $0.hasPrefix("language-") || $0.hasPrefix("lang-") }
-                    .map { $0.split(separator: "-", maxSplits: 1).last.map(String.init) ?? "" } ?? ""
-                output += "```" + language + "\n"
+                output += "```" + (Self.language(in: attributes) ?? "") + "\n"
                 preDepth += 1
             case "a":
                 linkHref = attributes["href"]
@@ -181,6 +199,9 @@ enum HTMLToMarkdown {
         private mutating func close(_ name: String) {
             if skipped.contains(name) { skipDepth = max(skipDepth - 1, 0); return }
             guard skipDepth == 0 else { return }
+            if tableCell != nil, name == "tr" || name == "table" {
+                close("td")
+            }
             if tableCell != nil, name != "th", name != "td" {
                 switch name {
                 case "strong", "b": tableCell! += "**"
@@ -251,6 +272,14 @@ enum HTMLToMarkdown {
             default:
                 break
             }
+        }
+
+        private static func language(in attributes: [String: String]) -> String? {
+            (attributes["class"] ?? "")
+                .split(separator: " ")
+                .first { $0.hasPrefix("language-") || $0.hasPrefix("lang-") }
+                .map { String($0.split(separator: "-", maxSplits: 1).last ?? "") }
+                .flatMap { $0.isEmpty ? nil : $0 }
         }
 
         // "**bold **" is not bold in Markdown; move the space outside.
