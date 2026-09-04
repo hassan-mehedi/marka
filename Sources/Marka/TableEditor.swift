@@ -33,11 +33,10 @@ struct TableEditor: Equatable {
         let ns = text as NSString
         let line = ns.substring(with: lines[lineIndex])
         let column = offset - lines[lineIndex].location
-        let pipes = MarkdownParser.pipeRanges(in: line).map(\.location)
-        var boundaries = pipes
-        if !line.trimmingCharacters(in: .whitespaces).hasPrefix("|") { boundaries.insert(-1, at: 0) }
+        let boundaries = MarkdownParser.tableBoundaries(in: line)
         let index = boundaries.filter { $0 < column }.count - 1
         let columns = table.alignments.count
+        guard columns > 0, !table.rows.isEmpty else { return nil }
         return Cell(row: min(row, table.rows.count - 1), column: min(max(index, 0), columns - 1))
     }
 
@@ -58,9 +57,7 @@ struct TableEditor: Equatable {
         let ns = text as NSString
         let lineRange = lines[lineIndex]
         let line = ns.substring(with: lineRange)
-        var boundaries = MarkdownParser.pipeRanges(in: line).map(\.location)
-        if !line.trimmingCharacters(in: .whitespaces).hasPrefix("|") { boundaries.insert(-1, at: 0) }
-        if !line.trimmingCharacters(in: .whitespaces).hasSuffix("|") { boundaries.append((line as NSString).length) }
+        let boundaries = MarkdownParser.tableBoundaries(in: line)
         guard cell.column + 1 < boundaries.count else {
             return NSRange(location: NSMaxRange(lineRange), length: 0)
         }

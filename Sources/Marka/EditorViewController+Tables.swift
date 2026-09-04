@@ -98,9 +98,12 @@ extension EditorViewController {
         return true
     }
 
-    // Return inside a table adds a row below the caret's row.
+    // Return inside a table adds a row below the caret's row. After the last
+    // pipe of the last row it is a plain newline, so a paragraph can follow a
+    // table that ends the document.
     func insertTableRowOnReturn() -> Bool {
         guard let (table, cell) = caretTable else { return false }
+        guard textView.selectedRange().location < NSMaxRange(table.fullRange) else { return false }
         var editor = TableEditor(table: table)
         editor.insertRow(at: cell.row + 1)
         apply(editor, replacing: table, caretIn: TableEditor.Cell(row: cell.row + 1, column: 0), selectContent: false)
@@ -128,7 +131,7 @@ extension EditorViewController {
         )
         guard let content = TableEditor.contentRange(of: cell, in: rewritten, text: textView.string) else { return }
         let selection = selectContent ? content : NSRange(location: NSMaxRange(content), length: 0)
-        textView.setSelectedRange(selection)
+        selectSource(selection)
         textView.scrollRangeToVisible(selection)
     }
 }
