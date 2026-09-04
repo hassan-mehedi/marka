@@ -60,6 +60,18 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
                 if let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible && $0.contentViewController != nil }) {
                     Self.writeSnapshot(of: window, to: snapshotPath, wholeWindow: environment["MARKA_SNAPSHOT_FRAME"] != nil)
                 }
+                if let layoutPath = environment["MARKA_DUMP_LAYOUT"],
+                   let split = (NSApp.keyWindow?.contentViewController as? DocumentContentViewController)?.split,
+                   let editor = split.splitViewItems.last?.viewController as? EditorViewController,
+                   let manager = editor.textView.textLayoutManager {
+                    var dump = ""
+                    manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: []) { fragment in
+                        let text = (fragment.textElement as? NSTextParagraph)?.attributedString.string ?? "?"
+                        dump += "\(fragment.layoutFragmentFrame) lines=\(fragment.textLineFragments.count) \(text.debugDescription)\n"
+                        return true
+                    }
+                    try? dump.write(toFile: layoutPath, atomically: true, encoding: .utf8)
+                }
                 if let menuPath = environment["MARKA_DUMP_MENU"], let mainMenu = NSApp.mainMenu {
                     let recents = NSDocumentController.shared.recentDocumentURLs.map(\.path).joined(separator: "\n")
                     let dump = Self.describe(menu: mainMenu, indent: "") + "\nrecent documents:\n" + recents + "\n"

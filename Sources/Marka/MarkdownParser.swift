@@ -93,31 +93,6 @@ struct LineInfo: Sendable {
 
     // Source ranges that render with a different length: markers vanish,
     // an inline math span becomes a single attachment character.
-    func displayReplacements(
-        markersHidden: Bool = true,
-        mathCollapses: (MathSpan) -> Bool = { _ in true }
-    ) -> [(range: NSRange, displayLength: Int)] {
-        var replacements: [(NSRange, Int)] = []
-        if markersHidden {
-            if case let .heading(_, marker) = blockKind {
-                replacements.append((marker, 0))
-            }
-            for span in inlineSpans {
-                replacements.append((span.openMarker, 0))
-                replacements.append((span.closeMarker, 0))
-            }
-        }
-        replacements += inlineMath.filter(mathCollapses).map { ($0.range, 1) }
-        replacements.sort { $0.0.location < $1.0.location }
-
-        var result: [(NSRange, Int)] = []
-        for replacement in replacements {
-            if let last = result.last, NSMaxRange(last.0) > replacement.0.location { continue }
-            result.append(replacement)
-        }
-        return result
-    }
-
     init(line: String) {
         blockKind = MarkdownParser.blockKind(of: line)
         pipes = MarkdownParser.pipeRanges(in: line)

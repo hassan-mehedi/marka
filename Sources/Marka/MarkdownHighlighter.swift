@@ -462,10 +462,7 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
         if revealed {
             storage.addAttribute(.foregroundColor, value: theme.resolvedMarker, range: range)
         } else {
-            storage.addAttributes(
-                [.foregroundColor: NSColor.clear, .font: NSFont.systemFont(ofSize: 0.01)],
-                range: range
-            )
+            storage.addAttributes(EditorViewController.hiddenAttributes, range: range)
         }
     }
 

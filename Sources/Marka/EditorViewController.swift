@@ -450,63 +450,13 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         return true
     }
 
-    private var lastSelection = NSRange(location: 0, length: 0)
-    private var correctingSelection = false
-
     func textViewDidChangeSelection(_ notification: Notification) {
-        if !correctingSelection {
-            correctCaretAfterReveal()
-        }
-        lastSelection = textView.selectedRange()
         highlighter.handleSelectionChange()
         recenterCaret()
     }
 
-    // A collapsed paragraph lays out fewer characters than the source holds,
-    // so a click into it lands the caret short by the hidden width. Remap the
-    // display column back to a source offset the moment the caret enters.
-    private func correctCaretAfterReveal() {
-        let selection = textView.selectedRange()
-        guard selection.length == 0, !highlighter.revealAllMarkers else { return }
-        let ns = textView.string as NSString
-        guard selection.location <= ns.length else { return }
-        let paragraph = ns.paragraphRange(for: selection)
-        guard paragraph.length > 0, !isLiteralParagraph(paragraph) else { return }
-        // Inside the caret's own paragraph the markers are already revealed
-        // and only math stays collapsed, so a click there remaps by math alone.
-        let wasInside = selectionTouches(paragraph, lastSelection)
-        if wasInside {
-            guard let event = NSApp.currentEvent, event.type == .leftMouseDown || event.type == .leftMouseUp else { return }
-        }
-
-        let column = selection.location - paragraph.location
-        guard column > 0 else { return }
-        var line = ns.substring(with: paragraph)
-        if line.hasSuffix("\n") { line.removeLast() }
-        let replacements = LineCache.info(for: line).displayReplacements(markersHidden: !wasInside, mathCollapses: { [weak self] math in
-            self?.mathRenders(math, in: line) ?? true
-        })
-        let source = min(Self.sourceOffset(forDisplayColumn: column, replacements: replacements), (line as NSString).length)
-        guard source != column else { return }
-        selectSource(NSRange(location: paragraph.location + source, length: 0))
-    }
-
-    // Selects a range given in source offsets, bypassing the display-column
-    // remap that a click into a collapsed paragraph needs.
     func selectSource(_ range: NSRange) {
-        correctingSelection = true
         textView.setSelectedRange(range)
-        correctingSelection = false
-        lastSelection = range
-    }
-
-    private func mathRenders(_ math: MathSpan, in line: String) -> Bool {
-        MathRenderer.shared.image(
-            latex: (line as NSString).substring(with: math.content),
-            fontSize: ThemeManager.shared.current.baseFont.pointSize,
-            display: false,
-            color: mathColor
-        ) != nil
     }
 
     private static let autoPairs: [String: String] = [
@@ -975,8 +925,7 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
     fileprivate func displayParagraph(for range: NSRange, in storage: NSTextStorage) -> NSTextParagraph? {
         let ns = storage.string as NSString
         var line = ns.substring(with: range)
-        let hadNewline = line.hasSuffix("\n")
-        if hadNewline { line.removeLast() }
+        if line.hasSuffix("\n") { line.removeLast() }
         let selection = textView.selectedRange()
 
         if let mermaid = mermaidParagraph(for: range, selection: selection) {
@@ -991,19 +940,19 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
             return fence
         }
 
-        if let table = tableParagraph(for: range, newline: hadNewline, selection: selection) {
+        if let table = tableParagraph(for: range, selection: selection) {
             return table
         }
 
         let info = LineCache.info(for: line)
         if info.isTOC, !selectionTouches(range, selection),
-           let toc = tocParagraph(newline: hadNewline) {
+           let toc = tocParagraph(source: range) {
             return toc
         }
 
         if !selectionTouches(range, selection) {
             if let path = info.imagePath, let image = resolvedImage(at: path) {
-                return blockParagraph(with: image, centered: false, newline: hadNewline)
+                return blockParagraph(with: image, centered: false, source: range)
             }
             if let latex = info.displayMath,
                let image = MathRenderer.shared.image(
@@ -1012,42 +961,11 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
                    display: true,
                    color: mathColor
                ) {
-                return blockParagraph(with: image, centered: true, newline: hadNewline)
+                return blockParagraph(with: image, centered: true, source: range)
             }
         }
 
-        return styledParagraph(for: range, line: line, info: info, storage: storage, selection: selection)
-    }
-
-    nonisolated static func displayReplacements(
-        in line: String,
-        markersHidden: Bool = true,
-        mathCollapses: (MathSpan) -> Bool = { _ in true }
-    ) -> [(range: NSRange, displayLength: Int)] {
-        LineCache.info(for: line).displayReplacements(markersHidden: markersHidden, mathCollapses: mathCollapses)
-    }
-
-    nonisolated static func sourceOffset(forDisplayColumn column: Int, in line: String) -> Int {
-        sourceOffset(forDisplayColumn: column, replacements: displayReplacements(in: line))
-    }
-
-    nonisolated static func sourceOffset(forDisplayColumn column: Int, replacements: [(range: NSRange, displayLength: Int)]) -> Int {
-        var source = 0
-        var display = 0
-        for (range, displayLength) in replacements {
-            let visible = range.location - source
-            if display + visible >= column {
-                return source + (column - display)
-            }
-            display += visible
-            source = range.location
-            if display + displayLength > column {
-                return source
-            }
-            display += displayLength
-            source = NSMaxRange(range)
-        }
-        return source + (column - display)
+        return mathParagraph(for: range, line: line, info: info, storage: storage, selection: selection)
     }
 
     private func isLiteralParagraph(_ range: NSRange) -> Bool {
@@ -1058,49 +976,57 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         return false
     }
 
-    private func styledParagraph(
+    // Display paragraphs keep the source's length: TextKit 2 positions the
+    // paragraph after a shorter one a full line too low once layout is
+    // invalidated. Hidden characters shrink to zero width instead.
+    static let hiddenAttributes: [NSAttributedString.Key: Any] = [
+        .font: NSFont.systemFont(ofSize: 0.01),
+        .foregroundColor: NSColor.clear,
+    ]
+
+    // Inline math outside the caret shows as a rendered image in place of
+    // its first character; the rest of the span hides.
+    private func mathParagraph(
         for range: NSRange,
         line: String,
         info: LineInfo,
         storage: NSTextStorage,
         selection: NSRange
     ) -> NSTextParagraph? {
-        guard !highlighter.revealAllMarkers, !isLiteralParagraph(range) else { return nil }
+        guard !highlighter.revealAllMarkers, !isLiteralParagraph(range), !info.inlineMath.isEmpty else { return nil }
 
         let lineNS = line as NSString
-        let paragraphUntouched = !selectionTouches(range, selection)
-        let replacements = info.displayReplacements()
-        guard !replacements.isEmpty else { return nil }
         let display = NSMutableAttributedString(attributedString: storage.attributedSubstring(from: range))
         var changed = false
 
-        for (span, displayLength) in replacements.reversed() {
-            if displayLength == 1 {
-                guard let math = info.inlineMath.first(where: { $0.range == span }) else { continue }
-                let global = NSRange(location: range.location + span.location, length: span.length)
-                guard !selectionTouches(global, selection) else { continue }
-                guard let image = MathRenderer.shared.image(
-                    latex: lineNS.substring(with: math.content),
-                    fontSize: ThemeManager.shared.current.baseFont.pointSize,
-                    display: false,
-                    color: mathColor
-                ) else { continue }
+        for math in info.inlineMath.reversed() {
+            let global = NSRange(location: range.location + math.range.location, length: math.range.length)
+            guard !selectionTouches(global, selection) else { continue }
+            guard let image = MathRenderer.shared.image(
+                latex: lineNS.substring(with: math.content),
+                fontSize: ThemeManager.shared.current.baseFont.pointSize,
+                display: false,
+                color: mathColor
+            ) else { continue }
 
-                let attachment = NSTextAttachment()
-                attachment.image = image
-                // Sit the formula on the text baseline instead of the line bottom.
-                attachment.bounds = NSRect(
-                    x: 0,
-                    y: ThemeManager.shared.current.baseFont.descender * 0.6,
-                    width: image.size.width,
-                    height: image.size.height
-                )
-                display.replaceCharacters(in: span, with: NSAttributedString(attachment: attachment))
-                changed = true
-            } else if paragraphUntouched {
-                display.deleteCharacters(in: span)
-                changed = true
-            }
+            let attachment = NSTextAttachment()
+            attachment.image = image
+            // Sit the formula on the text baseline instead of the line bottom.
+            attachment.bounds = NSRect(
+                x: 0,
+                y: ThemeManager.shared.current.baseFont.descender * 0.6,
+                width: image.size.width,
+                height: image.size.height
+            )
+            display.replaceCharacters(
+                in: NSRange(location: math.range.location, length: 1),
+                with: NSAttributedString(attachment: attachment)
+            )
+            display.setAttributes(
+                Self.hiddenAttributes,
+                range: NSRange(location: math.range.location + 1, length: math.range.length - 1)
+            )
+            changed = true
         }
 
         guard changed else { return nil }
@@ -1123,14 +1049,14 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
             refreshDisplayParagraphs(in: diagrams.map(\.fullRange))
         }) else {
             // Still rendering or failed: collapse the block so the code does not flash.
-            return Self.collapsedParagraph()
+            return collapsedParagraph(for: range)
         }
 
         // The diagram takes the place of the opening fence line; the rest collapses.
         guard NSLocationInRange(range.location, block.openDelimiter) else {
-            return Self.collapsedParagraph()
+            return collapsedParagraph(for: range)
         }
-        return blockParagraph(with: image, centered: true, newline: true)
+        return blockParagraph(with: image, centered: true, source: range)
     }
 
     private func mathBlockParagraph(for range: NSRange, selection: NSRange) -> NSTextParagraph? {
@@ -1151,9 +1077,9 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
               ) else { return nil }
 
         guard NSLocationInRange(range.location, block.openDelimiter) else {
-            return Self.collapsedParagraph()
+            return collapsedParagraph(for: range)
         }
-        return blockParagraph(with: image, centered: true, newline: true)
+        return blockParagraph(with: image, centered: true, source: range)
     }
 
     // Outside the caret, a fence shows its language as a small label on the
@@ -1172,31 +1098,37 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         style.tailIndent = -12
         guard NSLocationInRange(range.location, block.openDelimiter) else {
             style.paragraphSpacingBefore = 10
-            return NSTextParagraph(attributedString: NSAttributedString(
-                string: "\n",
-                attributes: [.font: NSFont.systemFont(ofSize: 0.01), .foregroundColor: NSColor.clear, .paragraphStyle: style]
-            ))
+            let display = NSMutableAttributedString(attributedString: collapsedParagraph(for: range).attributedString)
+            display.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: display.length))
+            return NSTextParagraph(attributedString: display)
         }
         style.alignment = .right
         style.paragraphSpacingBefore = 6
+        // The label replaces as many fence characters as it has; a label longer
+        // than the fence line would leave nothing to hide, so it is cut to fit.
+        let source = (textView.string as NSString).substring(with: range)
+        let body = source.hasSuffix("\n") ? String(source.dropLast()) : source
         let label = block.language.isEmpty ? "code" : block.language
-        return NSTextParagraph(attributedString: NSAttributedString(
-            string: label + "\n",
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
-                .foregroundColor: ThemeManager.shared.current.resolvedSecondary,
-                .paragraphStyle: style,
-            ]
-        ))
+        let shown = String(label.prefix(body.count))
+        let display = NSMutableAttributedString(string: shown, attributes: [
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: ThemeManager.shared.current.resolvedSecondary,
+        ])
+        display.append(NSAttributedString(string: String(body.dropFirst(shown.count)), attributes: Self.hiddenAttributes))
+        if source.hasSuffix("\n") {
+            display.append(NSAttributedString(string: "\n", attributes: [.font: ThemeManager.shared.current.baseFont]))
+        }
+        display.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: display.length))
+        return NSTextParagraph(attributedString: display)
     }
 
-    private func tableParagraph(for range: NSRange, newline: Bool, selection: NSRange) -> NSTextParagraph? {
+    private func tableParagraph(for range: NSRange, selection: NSRange) -> NSTextParagraph? {
         guard !highlighter.revealAllMarkers,
               let table = highlighter.tables.first(where: { NSLocationInRange(range.location, $0.fullRange) }),
               !selectionTouches(table.fullRange, selection)
         else { return nil }
-        guard range.location == table.fullRange.location else { return Self.collapsedParagraph() }
-        return blockParagraph(with: tableImage(for: table), centered: false, newline: newline)
+        guard range.location == table.fullRange.location else { return collapsedParagraph(for: range) }
+        return blockParagraph(with: tableImage(for: table), centered: false, source: range)
     }
 
     private func tableImage(for table: TableBlock) -> NSImage {
@@ -1213,10 +1145,14 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         return image
     }
 
-    private func tocParagraph(newline: Bool) -> NSTextParagraph? {
+    // The list is longer than the "[TOC]" line it replaces; the source
+    // characters ride along hidden so the paragraph still covers them.
+    private func tocParagraph(source range: NSRange) -> NSTextParagraph? {
         let items = lastOutline
         guard !items.isEmpty else { return nil }
         let theme = ThemeManager.shared.current
+        let sourceText = (textView.string as NSString).substring(with: range)
+        let newline = sourceText.hasSuffix("\n")
         let result = NSMutableAttributedString()
         let baseLevel = items.map(\.level).min() ?? 1
         for (offset, item) in items.enumerated() {
@@ -1234,17 +1170,18 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
             let separator = offset == items.count - 1 ? "" : "\u{2028}"
             result.append(NSAttributedString(string: indent + item.title + separator, attributes: attributes))
         }
+        result.append(NSAttributedString(string: newline ? String(sourceText.dropLast()) : sourceText, attributes: Self.hiddenAttributes))
         if newline {
             result.append(NSAttributedString(string: "\n", attributes: [.font: theme.baseFont]))
         }
         return NSTextParagraph(attributedString: result)
     }
 
-    private static func collapsedParagraph() -> NSTextParagraph {
-        NSTextParagraph(attributedString: NSAttributedString(
-            string: "\n",
-            attributes: [.font: NSFont.systemFont(ofSize: 0.01), .foregroundColor: NSColor.clear]
-        ))
+    // The whole source line at zero size, so the paragraph takes no room
+    // while still covering every character it stands for.
+    private func collapsedParagraph(for range: NSRange) -> NSTextParagraph {
+        let source = (textView.string as NSString).substring(with: range)
+        return NSTextParagraph(attributedString: NSAttributedString(string: source, attributes: Self.hiddenAttributes))
     }
 
     private func refreshDisplayParagraphs() {
@@ -1267,7 +1204,12 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
     }
 
 
-    private func blockParagraph(with image: NSImage, centered: Bool, newline: Bool) -> NSTextParagraph {
+    // The image stands in for the first source character; the rest of the
+    // line hides behind it.
+    private func blockParagraph(with image: NSImage, centered: Bool, source range: NSRange) -> NSTextParagraph {
+        let source = (textView.string as NSString).substring(with: range)
+        let newline = source.hasSuffix("\n")
+        let body = newline ? String(source.dropLast()) : source
         let insets = textView.textContainerInset.width * 2
         let maxWidth = max(120, textView.bounds.width - insets - 24)
         let scale = image.size.width > maxWidth ? maxWidth / image.size.width : 1
@@ -1282,8 +1224,9 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         )
 
         let display = NSMutableAttributedString(attachment: attachment)
+        display.append(NSAttributedString(string: String(body.dropFirst()), attributes: Self.hiddenAttributes))
         if newline {
-            display.append(NSAttributedString(string: "\n"))
+            display.append(NSAttributedString(string: "\n", attributes: [.font: ThemeManager.shared.current.baseFont]))
         }
         if centered {
             let style = NSMutableParagraphStyle()
