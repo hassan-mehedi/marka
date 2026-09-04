@@ -236,12 +236,13 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
             return
         }
 
-        if let block = fences.block(containing: paragraph) {
+        if let index = fences.blocks.firstIndex(where: { NSLocationInRange(paragraph.location, $0.range) }) {
+            let block = fences.blocks[index]
             storage.addAttributes([.font: theme.codeFont, .paragraphStyle: Self.codeParagraphStyle], range: paragraph)
             if exporting {
                 storage.addAttribute(.backgroundColor, value: theme.resolvedCodeBackground, range: paragraph)
             }
-            for token in tokens(for: block, ns: ns) {
+            for token in tokens(for: block, index: index, ns: ns) {
                 let global = shifted(token.range, by: block.range.location)
                 let intersection = NSIntersectionRange(global, paragraph)
                 if intersection.length > 0, let color = theme.tokenColor(String(token.name.split(separator: ".").first ?? "")) {
@@ -379,17 +380,23 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
         return line
     }
 
-    private var codeTokenCache: [Int: (code: String, tokens: [CodeHighlighter.Token])] = [:]
+    // Keyed by the block's position among the fences, which typing above a
+    // block does not change. A change in the block count clears it.
+    private var codeTokenCache: [Int: CodeHighlighter.Parse] = [:]
 
-    private func tokens(for block: FenceBlock, ns: NSString) -> [CodeHighlighter.Token] {
+    private func tokens(for block: FenceBlock, index: Int, ns: NSString) -> [CodeHighlighter.Token] {
         guard !block.language.isEmpty else { return [] }
         let code = ns.substring(with: block.range)
-        if let cached = codeTokenCache[block.range.location], cached.code == code {
-            return cached.tokens
+        let previous = codeTokenCache[index]
+        if let previous, previous.code == code {
+            return previous.tokens
         }
-        let tokens = CodeHighlighter.shared.highlights(for: code, language: block.language)
-        codeTokenCache[block.range.location] = (code, tokens)
-        return tokens
+        guard let parse = CodeHighlighter.shared.parse(code, language: block.language, previous: previous) else {
+            codeTokenCache[index] = nil
+            return []
+        }
+        codeTokenCache[index] = parse
+        return parse.tokens
     }
 
     private func dimIfUnfocused(_ paragraph: NSRange, storage: NSTextStorage, selection: NSRange) {
