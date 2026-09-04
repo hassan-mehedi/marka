@@ -230,9 +230,11 @@ struct ThemeFile: Codable {
 extension NSColor {
     convenience init?(hex: String) {
         var digits = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
+        guard digits.allSatisfy(\.isHexDigit) else { return nil }
         switch digits.count {
-        case 3:
-            digits = digits.map { "\($0)\($0)" }.joined() + "ff"
+        case 3, 4:
+            digits = digits.map { "\($0)\($0)" }.joined()
+            if digits.count == 6 { digits += "ff" }
         case 6:
             digits += "ff"
         case 8:

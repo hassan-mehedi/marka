@@ -23,12 +23,23 @@ final class ThemeManager {
     }
 
     var themes: [Theme] {
-        Theme.builtIn + userThemes
+        Self.merge(builtIn: Theme.builtIn, user: Self.loadUserThemes())
+    }
+
+    // Names are how themes are picked, so each appears once: a user theme
+    // named like a built-in replaces it, and a second file with the same
+    // name is ignored.
+    nonisolated static func merge(builtIn: [Theme], user: [Theme]) -> [Theme] {
+        var seen = Set<String>()
+        let users = user.filter { seen.insert($0.name).inserted }
+        let replaced = builtIn.map { theme in users.first { $0.name == theme.name } ?? theme }
+        let builtInNames = Set(builtIn.map(\.name))
+        return replaced + users.filter { !builtInNames.contains($0.name) }
     }
 
     private init() {
         let saved = UserDefaults.standard.string(forKey: Self.defaultsKey)
-        let available = Theme.builtIn + Self.loadUserThemes()
+        let available = Self.merge(builtIn: Theme.builtIn, user: Self.loadUserThemes())
         baseTheme = available.first { $0.name == saved } ?? .systemTheme
         let savedScale = UserDefaults.standard.double(forKey: Self.scaleKey)
         fontScale = Self.scaleSteps.contains(savedScale) ? savedScale : 1
@@ -60,8 +71,6 @@ final class ThemeManager {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Marka/Themes", isDirectory: true)
     }
-
-    private var userThemes: [Theme] { Self.loadUserThemes() }
 
     private static func loadUserThemes() -> [Theme] {
         guard let files = try? FileManager.default.contentsOfDirectory(

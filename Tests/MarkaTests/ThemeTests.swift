@@ -58,3 +58,21 @@ import Testing
     #expect(names.contains("Night"))
     #expect(names.contains("Newsprint"))
 }
+
+@Test func hexColorRejectsSignsAndAcceptsShortAlpha() {
+    #expect(NSColor(hex: "#+fffff") == nil)
+    #expect(NSColor(hex: "#12g") == nil)
+    let short = NSColor(hex: "#f008")
+    #expect(short != nil)
+    #expect(abs((short?.alphaComponent ?? 0) - 136.0 / 255) < 0.001)
+}
+
+@Test func userThemeReplacesBuiltInWithSameName() {
+    var custom = Theme.systemTheme
+    custom.name = "GitHub"
+    var duplicate = Theme.systemTheme
+    duplicate.name = "Mine"
+    let merged = ThemeManager.merge(builtIn: Theme.builtIn, user: [custom, duplicate, duplicate])
+    #expect(merged.map(\.name) == Theme.builtIn.map(\.name) + ["Mine"])
+    #expect(merged.first { $0.name == "GitHub" } == custom)
+}
