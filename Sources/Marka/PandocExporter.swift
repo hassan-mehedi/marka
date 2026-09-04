@@ -20,22 +20,53 @@ enum PandocExporter {
         process.executableURL = pandoc
         process.arguments = ["--from", format, "--to", "gfm", "--wrap=none", url.path]
         process.currentDirectoryURL = url.deletingLastPathComponent()
+        let result = try run(process, input: nil)
+        guard result.status == 0 else { throw failure(result) }
+        return String(decoding: result.output, as: UTF8.self)
+    }
+
+    private static let ignoresSIGPIPE: Void = { signal(SIGPIPE, SIG_IGN) }()
+
+    // Drains stderr and feeds stdin on other threads while stdout is read
+    // here, so a chatty or early-exiting pandoc cannot stall on a full pipe.
+    private static func run(_ process: Process, input: Data?) throws -> (status: Int32, output: Data, errors: Data) {
+        _ = ignoresSIGPIPE
         let output = Pipe()
         let errors = Pipe()
         process.standardOutput = output
         process.standardError = errors
+        let stdin = input == nil ? nil : Pipe()
+        if let stdin { process.standardInput = stdin }
         try process.run()
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            let message = String(data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            throw NSError(
-                domain: "Marka",
-                code: Int(process.terminationStatus),
-                userInfo: [NSLocalizedDescriptionKey: "pandoc failed: \(message)"]
-            )
+
+        let group = DispatchGroup()
+        nonisolated(unsafe) var errorData = Data()
+        group.enter()
+        DispatchQueue.global().async {
+            errorData = errors.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
         }
-        return String(decoding: data, as: UTF8.self)
+        if let stdin, let input {
+            group.enter()
+            DispatchQueue.global().async {
+                try? stdin.fileHandleForWriting.write(contentsOf: input)
+                try? stdin.fileHandleForWriting.close()
+                group.leave()
+            }
+        }
+        let outputData = output.fileHandleForReading.readDataToEndOfFile()
+        group.wait()
+        process.waitUntilExit()
+        return (process.terminationStatus, outputData, errorData)
+    }
+
+    private static func failure(_ result: (status: Int32, output: Data, errors: Data)) -> NSError {
+        let message = String(data: result.errors, encoding: .utf8) ?? ""
+        return NSError(
+            domain: "Marka",
+            code: Int(result.status),
+            userInfo: [NSLocalizedDescriptionKey: "pandoc failed: \(message)"]
+        )
     }
 
     private static var missingPandoc: NSError {
@@ -80,22 +111,7 @@ enum PandocExporter {
             process.currentDirectoryURL = workingDirectory
         }
 
-        let input = Pipe()
-        let errors = Pipe()
-        process.standardInput = input
-        process.standardError = errors
-        try process.run()
-        input.fileHandleForWriting.write(Data(markdown.utf8))
-        input.fileHandleForWriting.closeFile()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            let message = String(data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            throw NSError(
-                domain: "Marka",
-                code: Int(process.terminationStatus),
-                userInfo: [NSLocalizedDescriptionKey: "pandoc failed: \(message)"]
-            )
-        }
+        let result = try run(process, input: Data(markdown.utf8))
+        guard result.status == 0 else { throw failure(result) }
     }
 }

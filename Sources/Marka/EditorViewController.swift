@@ -854,16 +854,16 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
     private func exportWithPandoc(extension ext: String, type: UTType, format: String) {
         guard let url = runExportPanel(extension: ext, type: type) else { return }
         let title = fileURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
-        do {
-            try PandocExporter.export(
-                markdown: textView.string,
-                to: url,
-                format: format,
-                title: title,
-                workingDirectory: fileURL?.deletingLastPathComponent()
-            )
-        } catch {
-            presentError(error)
+        let markdown = textView.string
+        let workingDirectory = fileURL?.deletingLastPathComponent()
+        Task { [weak self] in
+            do {
+                try await Task.detached {
+                    try PandocExporter.export(markdown: markdown, to: url, format: format, title: title, workingDirectory: workingDirectory)
+                }.value
+            } catch {
+                self?.presentError(error)
+            }
         }
     }
 

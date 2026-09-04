@@ -174,12 +174,14 @@ final class MarkaDocumentController: NSDocumentController {
         panel.allowedContentTypes = PandocExporter.importFormats.keys.compactMap { UTType(filenameExtension: $0) }
         panel.message = "Choose a document to convert to Markdown"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            let markdown = try PandocExporter.importMarkdown(from: url)
-            let document = try openUntitledDocumentAndDisplay(true) as? MarkaDocument
-            document?.replaceText(with: markdown)
-        } catch {
-            NSAlert(error: error).runModal()
+        Task {
+            do {
+                let markdown = try await Task.detached { try PandocExporter.importMarkdown(from: url) }.value
+                let document = try openUntitledDocumentAndDisplay(true) as? MarkaDocument
+                document?.replaceText(with: markdown)
+            } catch {
+                NSAlert(error: error).runModal()
+            }
         }
     }
 
