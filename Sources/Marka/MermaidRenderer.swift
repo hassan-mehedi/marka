@@ -6,10 +6,12 @@ final class MermaidRenderer: NSObject {
     static let shared = MermaidRenderer()
 
     private enum State {
-        case rendering
+        case rendering([() -> Void])
         case done(NSImage)
-        case failed
+        case failed(retryAfter: Date?)
     }
+
+    private static let retryInterval: TimeInterval = 10
 
     private var states: [String: State] = [:]
     private var webView: WKWebView?
@@ -17,17 +19,24 @@ final class MermaidRenderer: NSObject {
     private var pendingSource: String?
 
     /// Returns the rendered diagram, or nil while it is still rendering or if it failed.
-    /// `onReady` fires once when a render this call started finishes.
+    /// `onReady` fires once when the render finishes, for every caller that
+    /// asked while it was in flight. A failure is retried after a pause.
     func image(for source: String, dark: Bool, onReady: @escaping () -> Void) -> NSImage? {
         let key = "\(dark ? "dark" : "light")\n\(source)"
         switch states[key] {
         case let .done(image):
             return image
-        case .rendering, .failed:
+        case let .rendering(waiters):
+            states[key] = .rendering(waiters + [onReady])
+            return nil
+        case let .failed(retryAfter):
+            guard let retryAfter, Date() >= retryAfter else { return nil }
+            states[key] = .rendering([onReady])
+            render(source: source, dark: dark, key: key)
             return nil
         case nil:
-            states[key] = .rendering
-            render(source: source, dark: dark, key: key, onReady: onReady)
+            states[key] = .rendering([onReady])
+            render(source: source, dark: dark, key: key)
             return nil
         }
     }
@@ -36,9 +45,26 @@ final class MermaidRenderer: NSObject {
         states.removeAll()
     }
 
-    private func render(source: String, dark: Bool, key: String, onReady: @escaping () -> Void) {
+    // A diagram mermaid rejected stays failed; a timeout retries after a pause.
+    private func finish(_ key: String, with result: Result<NSImage, RenderError>) {
+        let waiters: [() -> Void]
+        if case let .rendering(pending) = states[key] { waiters = pending } else { waiters = [] }
+        switch result {
+        case let .success(image): states[key] = .done(image)
+        case .failure(.rejected): states[key] = .failed(retryAfter: nil)
+        case .failure(.timedOut): states[key] = .failed(retryAfter: Date().addingTimeInterval(Self.retryInterval))
+        }
+        waiters.forEach { $0() }
+    }
+
+    private enum RenderError: Error {
+        case rejected
+        case timedOut
+    }
+
+    private func render(source: String, dark: Bool, key: String) {
         guard let script = loadScript() else {
-            states[key] = .failed
+            finish(key, with: .failure(.rejected))
             return
         }
 
@@ -53,24 +79,20 @@ final class MermaidRenderer: NSObject {
 
         Task { [weak self] in
             guard let self else { return }
-            let image = await Self.snapshot(from: webView)
-            if let image {
-                self.states[key] = .done(image)
-            } else {
-                self.states[key] = .failed
-            }
+            let result = await Self.snapshot(from: webView)
             self.webView = nil
-            onReady()
+            self.finish(key, with: result)
         }
     }
 
-    private static func snapshot(from webView: WKWebView) async -> NSImage? {
+    private static func snapshot(from webView: WKWebView) async -> Result<NSImage, RenderError> {
         // Poll until mermaid reports the SVG size, then match the view to it.
         for _ in 0..<80 {
             try? await Task.sleep(for: .milliseconds(50))
             let result = try? await webView.evaluateJavaScript("window.markaSize")
-            guard let size = result as? [String: Any],
-                  let width = size["width"] as? Double,
+            guard let size = result as? [String: Any] else { continue }
+            if size["error"] != nil { return .failure(.rejected) }
+            guard let width = size["width"] as? Double,
                   let height = size["height"] as? Double,
                   width > 1, height > 1
             else { continue }
@@ -80,9 +102,10 @@ final class MermaidRenderer: NSObject {
 
             let configuration = WKSnapshotConfiguration()
             configuration.rect = webView.bounds
-            return try? await webView.takeSnapshot(configuration: configuration)
+            guard let image = try? await webView.takeSnapshot(configuration: configuration) else { return .failure(.timedOut) }
+            return .success(image)
         }
-        return nil
+        return .failure(.timedOut)
     }
 
     private func loadScript() -> String? {
