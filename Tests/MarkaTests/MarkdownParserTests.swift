@@ -285,3 +285,48 @@ import Testing
     #expect(MarkdownParser.tableCells(in: "x | y") == ["x", "y"])
     #expect(MarkdownParser.tableCells(in: "| :---: | ---: |") == [":---:", "---:"])
 }
+
+@Test func tableKeepsCellsBeyondHeaderWidth() {
+    let text = "| a | b |\n|---|---|\n| 1 | 2 | 3 |\n"
+    let tables = MarkdownParser.tables(in: text, excluding: FenceInfo())
+    #expect(tables.count == 1)
+    #expect(tables[0].rows == [["a", "b", ""], ["1", "2", "3"]])
+    #expect(tables[0].alignments.count == 3)
+}
+
+@Test func tableRowEndingInEscapedPipeKeepsLastCell() {
+    #expect(MarkdownParser.tableCells(in: "| a | b\\|") == ["a", "b\\|"])
+    #expect(MarkdownParser.tableBoundaries(in: "a | b") == [-1, 2, 5])
+}
+
+@Test func tableWithNoCellsIsNotATable() {
+    let tables = MarkdownParser.tables(in: "|\n|-|\n", excluding: FenceInfo())
+    #expect(tables.isEmpty)
+}
+
+@Test func fenceClosesOnlyWithMatchingRun() {
+    let text = "````md\n```js\nx\n```\n````\n"
+    let fences = MarkdownParser.fences(in: text)
+    #expect(fences.blocks.count == 1)
+    #expect(fences.blocks[0].language == "md")
+    #expect((text as NSString).substring(with: fences.blocks[0].range) == "```js\nx\n```\n")
+    #expect(MarkdownParser.fences(in: "~~~\n```\nstill code\n~~~\n").blocks.count == 1)
+}
+
+@Test func inlineMathWithUnclosedDollarStaysFast() {
+    let line = "$C:" + String(repeating: "\\a", count: 40)
+    let start = Date()
+    #expect(MarkdownParser.inlineMathSpans(in: line).isEmpty)
+    #expect(Date().timeIntervalSince(start) < 0.5)
+}
+
+@Test func inlineSpansNest() {
+    let spans = MarkdownParser.inlineSpans(in: "**bold `code`** and [**x**](u)")
+    #expect(spans.map(\.kind) == [.bold, .code, .link(url: "u"), .bold])
+    #expect(MarkdownParser.inlineSpans(in: "`**not bold**`").map(\.kind) == [.code])
+}
+
+@Test func inlineImageIsItsOwnSpan() {
+    let spans = MarkdownParser.inlineSpans(in: "text ![alt](a.png) more")
+    #expect(spans.map(\.kind) == [.image(src: "a.png")])
+}

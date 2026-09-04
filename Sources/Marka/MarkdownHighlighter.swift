@@ -72,6 +72,14 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
             restyle(paragraphsIn: NSRange(location: 0, length: storage.length), storage: storage)
         } else if let edited = pendingEditedRange {
             restyle(paragraphsIn: edited, storage: storage)
+            // Undo moves the caret in the same pass as the edit, so the
+            // paragraphs it left and landed in need their markers redone too.
+            let ns = storage.string as NSString
+            let left = expandToBlock(ns.paragraphRange(for: clamp(previousSelection, to: ns.length)))
+            let entered = expandToBlock(ns.paragraphRange(for: clamp(textView.selectedRange(), to: ns.length)))
+            for block in [left, entered] where NSIntersectionRange(block, edited).length == 0 && !NSEqualRanges(block, edited) {
+                restyle(paragraphsIn: block, storage: storage)
+            }
         }
         pendingEditedRange = nil
         pendingEditStart = nil
@@ -139,13 +147,14 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
     func exportAttributedString() -> NSAttributedString {
         guard let storage = textView.textStorage else { return NSAttributedString() }
         let copy = NSTextStorage(string: storage.string)
-        let saved = revealAllMarkers
+        let saved = (revealAllMarkers, focusMode)
         revealAllMarkers = false
+        focusMode = false
         exporting = true
         let nowhere = NSRange(location: copy.length + 1, length: 0)
         restyle(paragraphsIn: NSRange(location: 0, length: copy.length), storage: copy, selection: nowhere)
         exporting = false
-        revealAllMarkers = saved
+        (revealAllMarkers, focusMode) = saved
         return copy
     }
 
@@ -165,9 +174,9 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
             applyInline(span, offset: 0, storage: storage, selection: nowhere)
         }
         revealAllMarkers = saved
-        for span in spans.reversed() {
-            storage.deleteCharacters(in: span.closeMarker)
-            storage.deleteCharacters(in: span.openMarker)
+        let markers = spans.flatMap { [$0.openMarker, $0.closeMarker] }.sorted { $0.location > $1.location }
+        for marker in markers {
+            storage.deleteCharacters(in: marker)
         }
         return storage
     }
@@ -407,6 +416,8 @@ final class MarkdownHighlighter: NSObject, @MainActor NSTextStorageDelegate {
             if !revealed, let parsed = URL(string: url) {
                 storage.addAttribute(.link, value: parsed, range: content)
             }
+        case .image:
+            storage.addAttribute(.foregroundColor, value: theme.resolvedSecondary, range: content)
         }
 
         applyMarker(storage, range: shifted(span.openMarker, by: offset), revealed: revealed)

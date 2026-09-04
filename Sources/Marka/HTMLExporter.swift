@@ -188,6 +188,12 @@ enum HTMLExporter {
                 continue
             }
 
+            func startsTable(_ index: Int) -> Bool {
+                !MarkdownParser.pipeRanges(in: lines[index]).isEmpty
+                    && index + 1 < lines.count
+                    && MarkdownParser.blockKind(of: lines[index + 1]) == .tableSeparator
+            }
+
             var paragraph: [String] = []
             while index < lines.count,
                   !lines[index].trimmingCharacters(in: .whitespaces).isEmpty,
@@ -195,7 +201,9 @@ enum HTMLExporter {
                   fenceBlock(at: lineStarts[index]) == nil,
                   MarkdownParser.displayMathContent(in: lines[index]) == nil,
                   MarkdownParser.imageLinePath(in: lines[index]) == nil,
-                  MarkdownParser.pipeRanges(in: lines[index]).isEmpty {
+                  MarkdownParser.footnoteDefinitionMarker(in: lines[index]) == nil,
+                  !MarkdownParser.isTOCLine(lines[index]),
+                  !startsTable(index) {
                 paragraph.append(lines[index])
                 index += 1
             }
@@ -257,7 +265,8 @@ enum HTMLExporter {
         }
         html += "</tr>\n</thead>\n<tbody>\n"
         index += 2
-        while index < lines.count, !MarkdownParser.pipeRanges(in: lines[index]).isEmpty {
+        while index < lines.count, !MarkdownParser.pipeRanges(in: lines[index]).isEmpty,
+              MarkdownParser.blockKind(of: lines[index]) == .paragraph {
             html += "<tr>"
             for cell in MarkdownParser.tableCells(in: lines[index]) {
                 html += "<td>\(inline(cell, footnotes: footnotes))</td>"
@@ -311,7 +320,10 @@ enum HTMLExporter {
 
     private static func inline(_ text: String, footnotes: FootnoteContext? = nil) -> String {
         let ns = text as NSString
-        let spans = MarkdownParser.inlineSpans(in: text)
+        let allSpans = MarkdownParser.inlineSpans(in: text)
+        let spans = allSpans.filter { span in
+            !allSpans.contains { $0 != span && $0.range.location <= span.range.location && NSMaxRange($0.range) >= NSMaxRange(span.range) }
+        }
         let mathSpans = MarkdownParser.inlineMathSpans(in: text)
             .filter { math in !spans.contains { NSIntersectionRange($0.range, math.range).length > 0 } }
         let refs = footnotes == nil ? [] : MarkdownParser.footnoteReferences(in: text)
@@ -339,18 +351,19 @@ enum HTMLExporter {
         var cursor = 0
         for piece in pieces {
             if piece.location > cursor {
-                html += escape(ns.substring(with: NSRange(location: cursor, length: piece.location - cursor)))
+                html += plain(ns.substring(with: NSRange(location: cursor, length: piece.location - cursor)))
             }
             switch piece {
             case let .span(span):
                 let content = ns.substring(with: span.content)
                 switch span.kind {
-                case .bold: html += "<strong>\(escape(content))</strong>"
-                case .italic: html += "<em>\(escape(content))</em>"
-                case .boldItalic: html += "<strong><em>\(escape(content))</em></strong>"
-                case .strikethrough: html += "<del>\(escape(content))</del>"
+                case .bold: html += "<strong>\(inline(content, footnotes: footnotes))</strong>"
+                case .italic: html += "<em>\(inline(content, footnotes: footnotes))</em>"
+                case .boldItalic: html += "<strong><em>\(inline(content, footnotes: footnotes))</em></strong>"
+                case .strikethrough: html += "<del>\(inline(content, footnotes: footnotes))</del>"
                 case .code: html += "<code>\(escape(content))</code>"
-                case let .link(url): html += "<a href=\"\(escape(url))\">\(escape(content))</a>"
+                case let .link(url): html += "<a href=\"\(escape(url))\">\(inline(content, footnotes: footnotes))</a>"
+                case let .image(src): html += "<img src=\"\(escape(src))\" alt=\"\(escape(content))\">"
                 }
             case let .math(math):
                 html += "\\(\(escape(ns.substring(with: math.content)))\\)"
@@ -361,9 +374,25 @@ enum HTMLExporter {
             cursor = NSMaxRange(piece.range)
         }
         if cursor < ns.length {
-            html += escape(ns.substring(from: cursor))
+            html += plain(ns.substring(from: cursor))
         }
         return html
+    }
+
+    // Plain text between spans: a backslash before punctuation is an escape
+    // and drops out, so `\*not italic\*` exports as `*not italic*`.
+    private static func plain(_ raw: String) -> String {
+        var result = ""
+        var iterator = raw.makeIterator()
+        while let character = iterator.next() {
+            if character == "\\", let next = iterator.next() {
+                if !next.isASCII || !next.isPunctuation && !next.isSymbol { result.append(character) }
+                result.append(next)
+            } else {
+                result.append(character)
+            }
+        }
+        return escape(result)
     }
 
     private static func escape(_ text: String) -> String {

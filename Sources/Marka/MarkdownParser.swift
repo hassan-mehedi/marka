@@ -4,6 +4,7 @@ struct InlineSpan: Equatable {
     enum Kind: Equatable {
         case bold, italic, boldItalic, strikethrough, code
         case link(url: String)
+        case image(src: String)
     }
 
     let kind: Kind
@@ -87,7 +88,8 @@ enum MarkdownParser {
     private static let tableSeparatorRow = regex("^[ \\t]*\\|?[ \\t]*:?-+:?[ \\t]*(?:\\|[ \\t]*:?-+:?[ \\t]*)*\\|?[ \\t]*$")
 
     private static let codeSpan = regex("(`+)([^`\\n]+?)(\\1)")
-    private static let linkSpan = regex("(\\[)([^\\[\\]\\n]+)(\\]\\(([^()\\s]*)\\))")
+    private static let linkSpan = regex("(?<!!)(\\[)([^\\[\\]\\n]+)(\\]\\(([^()\\s]*)\\))")
+    private static let imageSpan = regex("(!\\[)([^\\[\\]\\n]*)(\\]\\(([^()\\s]+)\\))")
     private static let boldItalicSpan = regex("(\\*\\*\\*)(?=\\S)([^*\\n]+?)(?<=\\S)(\\*\\*\\*)")
     private static let boldSpan = regex("(\\*\\*)(?=\\S)([^\\n]+?)(?<=\\S)(\\*\\*)")
     private static let italicSpan = regex("(?<![*\\\\])(\\*)(?![*\\s])([^*\\n]+?)(?<![\\s*])(\\*)(?!\\*)")
@@ -126,12 +128,18 @@ enum MarkdownParser {
         let ns = text as NSString
         let full = NSRange(location: 0, length: ns.length)
         var spans: [InlineSpan] = []
-        var occupied: [NSRange] = []
 
+        // Spans may nest inside one another, so `**bold `code`**` styles both.
+        // A span that only partly overlaps an earlier one, or that sits inside
+        // a code span, is not a span.
         func collect(_ regex: NSRegularExpression, _ kind: (NSTextCheckingResult) -> InlineSpan.Kind) {
             regex.enumerateMatches(in: text, range: full) { match, _, _ in
                 guard let match else { return }
-                guard !occupied.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) else { return }
+                for span in spans where NSIntersectionRange(span.range, match.range).length > 0 {
+                    let insideExisting = contains(span.content, match.range)
+                    let wrapsExisting = contains(match.range(at: 2), span.range)
+                    guard wrapsExisting || insideExisting && span.kind != .code else { return }
+                }
                 spans.append(InlineSpan(
                     kind: kind(match),
                     range: match.range,
@@ -139,18 +147,24 @@ enum MarkdownParser {
                     content: match.range(at: 2),
                     closeMarker: match.range(at: 3)
                 ))
-                occupied.append(match.range)
             }
         }
 
         collect(codeSpan) { _ in .code }
+        collect(imageSpan) { .image(src: ns.substring(with: $0.range(at: 4))) }
         collect(linkSpan) { .link(url: ns.substring(with: $0.range(at: 4))) }
         collect(boldItalicSpan) { _ in .boldItalic }
         collect(boldSpan) { _ in .bold }
         collect(italicSpan) { _ in .italic }
         collect(strikeSpan) { _ in .strikethrough }
 
-        return spans.sorted { $0.range.location < $1.range.location }
+        return spans.sorted {
+            $0.range.location != $1.range.location ? $0.range.location < $1.range.location : $0.range.length > $1.range.length
+        }
+    }
+
+    private static func contains(_ outer: NSRange, _ inner: NSRange) -> Bool {
+        inner.location >= outer.location && NSMaxRange(inner) <= NSMaxRange(outer)
     }
 
     static func mathBlocks(in text: String, excluding fences: FenceInfo) -> [MathBlock] {
@@ -184,18 +198,35 @@ enum MarkdownParser {
         return blocks
     }
 
+    // The run of backticks or tildes that opens a fence, or nil for other lines.
+    static func fenceMarker(of line: String) -> (character: Character, length: Int)? {
+        guard let first = line.first, first == "`" || first == "~" else { return nil }
+        let length = line.prefix { $0 == first }.count
+        return length >= 3 ? (first, length) : nil
+    }
+
+    // A closing fence repeats the opener's character at least as many times
+    // and carries nothing else; a shorter or different run is content.
+    private static func closesFence(_ line: String, opener: (character: Character, length: Int)) -> Bool {
+        guard let marker = fenceMarker(of: line), marker.character == opener.character, marker.length >= opener.length else {
+            return false
+        }
+        return line.dropFirst(marker.length).allSatisfy { $0 == " " || $0 == "\t" }
+    }
+
     static func fences(in text: String) -> FenceInfo {
         let ns = text as NSString
         var info = FenceInfo()
         var openContentStart: Int?
         var openLanguage = ""
         var openDelimiter = NSRange(location: 0, length: 0)
+        var opener: (character: Character, length: Int) = ("`", 3)
 
         ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: .byLines) { _, lineRange, enclosingRange, _ in
             let line = ns.substring(with: lineRange)
-            guard line.hasPrefix("```") || line.hasPrefix("~~~") else { return }
-            info.delimiterLines.append(lineRange)
             if let start = openContentStart {
+                guard closesFence(line, opener: opener) else { return }
+                info.delimiterLines.append(lineRange)
                 info.blocks.append(FenceBlock(
                     range: NSRange(location: start, length: lineRange.location - start),
                     language: openLanguage,
@@ -203,9 +234,11 @@ enum MarkdownParser {
                     closeDelimiter: lineRange
                 ))
                 openContentStart = nil
-            } else {
+            } else if let marker = fenceMarker(of: line) {
+                info.delimiterLines.append(lineRange)
+                opener = marker
                 openContentStart = NSMaxRange(enclosingRange)
-                openLanguage = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                openLanguage = String(line.dropFirst(marker.length)).trimmingCharacters(in: .whitespaces)
                 openDelimiter = lineRange
             }
         }
@@ -222,7 +255,7 @@ enum MarkdownParser {
 
     private static let imageLine = regex("^[ \\t]*!\\[[^\\]\\n]*\\]\\(([^()\\s]+)\\)[ \\t]*$")
     private static let displayMathLine = regex("^[ \\t]*\\$\\$[ \\t]*(.*\\S)[ \\t]*\\$\\$[ \\t]*$")
-    private static let inlineMath = regex("(?<![\\\\$])(\\$)(?![\\s$])((?:\\\\.|[^$\\n])+?)(?<![\\s\\\\])(\\$)(?![\\d$])")
+    private static let inlineMath = regex("(?<![\\\\$])(\\$)(?![\\s$])((?:[^$\\\\\\n]|\\\\.)+?)(?<![\\s\\\\])(\\$)(?![\\d$])")
 
     static func displayMathContent(in line: String) -> String? {
         let ns = line as NSString
@@ -325,13 +358,23 @@ enum MarkdownParser {
         return items
     }
 
+    // Offsets of the pipes that separate cells, with -1 and the line length
+    // standing in for a missing leading or trailing pipe. An escaped pipe
+    // is cell content, so `| a | b\|` still ends in an open cell.
+    static func tableBoundaries(in line: String) -> [Int] {
+        let ns = line as NSString
+        var boundaries = pipeRanges(in: line).map(\.location)
+        let leadingPipe = boundaries.first.map { ns.substring(to: $0).trimmingCharacters(in: .whitespaces).isEmpty } ?? false
+        let trailingPipe = boundaries.last.map { ns.substring(from: $0 + 1).trimmingCharacters(in: .whitespaces).isEmpty } ?? false
+        if !leadingPipe { boundaries.insert(-1, at: 0) }
+        if !trailingPipe { boundaries.append(ns.length) }
+        return boundaries
+    }
+
     static func tableCells(in line: String) -> [String] {
         let ns = line as NSString
-        var pipes = pipeRanges(in: line).map(\.location)
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        if !trimmed.hasPrefix("|") { pipes.insert(-1, at: 0) }
-        if !trimmed.hasSuffix("|") { pipes.append(ns.length) }
-        return zip(pipes, pipes.dropFirst()).map { start, end in
+        let boundaries = tableBoundaries(in: line)
+        return zip(boundaries, boundaries.dropFirst()).map { start, end in
             ns.substring(with: NSRange(location: start + 1, length: end - start - 1)).trimmingCharacters(in: .whitespaces)
         }
     }
@@ -372,10 +415,16 @@ enum MarkdownParser {
                 last = next
                 next += 1
             }
-            let columns = headerCells.count
+            // Every cell survives, so a rewrite of the table never drops one
+            // that sits beyond the header's width.
+            let columns = rows.map(\.count).max() ?? 0
+            guard columns > 0 else {
+                index = next
+                continue
+            }
             tables.append(TableBlock(
                 fullRange: NSUnionRange(header.range, lines[last].range),
-                rows: rows.map { row in Array((row + Array(repeating: "", count: columns)).prefix(columns)) },
+                rows: rows.map { row in row + Array(repeating: "", count: columns - row.count) },
                 alignments: Array((alignments + Array(repeating: .left, count: columns)).prefix(columns))
             ))
             index = next

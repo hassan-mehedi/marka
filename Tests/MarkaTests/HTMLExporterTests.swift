@@ -118,3 +118,32 @@ import Testing
     #expect(!html.contains("<p>[^a]: First note.</p>"))
     #expect(html.contains("<section class=\"footnotes\">"))
 }
+
+@Test func htmlKeepsParagraphsWithPipes() {
+    let html = HTMLExporter.fragment(from: "Run `ls | grep x` now.\n\nNext para.\n")
+    #expect(html.contains("<p>Run <code>ls | grep x</code> now.</p>"))
+    #expect(html.contains("<p>Next para.</p>"))
+}
+
+@Test func htmlTableStopsAtNextBlock() {
+    let html = HTMLExporter.fragment(from: "| a | b |\n| - | - |\n| 1 | 2 |\n## Head | x\n")
+    #expect(html.contains("<td>1</td><td>2</td>"))
+    #expect(html.contains("<h2 id=\"head-x\">Head | x</h2>"))
+}
+
+@Test func htmlNestedInlineMarkup() {
+    let html = HTMLExporter.fragment(from: "**bold `code`** and [**x**](u) and **a *b* c**\n")
+    #expect(html.contains("<strong>bold <code>code</code></strong>"))
+    #expect(html.contains("<a href=\"u\"><strong>x</strong></a>"))
+    #expect(html.contains("<strong>a <em>b</em> c</strong>"))
+}
+
+@Test func htmlDropsBackslashEscapes() {
+    let html = HTMLExporter.fragment(from: "\\*not italic\\* costs \\$5 and a\\|b\n")
+    #expect(html.contains("<p>*not italic* costs $5 and a|b</p>"))
+}
+
+@Test func htmlInlineImage() {
+    let html = HTMLExporter.fragment(from: "text ![alt](a.png) more\n")
+    #expect(html.contains("<p>text <img src=\"a.png\" alt=\"alt\"> more</p>"))
+}
