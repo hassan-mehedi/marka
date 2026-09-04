@@ -180,7 +180,10 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         layoutWidth = width
         guard !firstLayout, !highlighter.tables.isEmpty else { return }
         pendingWidthRefresh?.cancel()
-        let refresh = DispatchWorkItem { [weak self] in self?.refreshDisplayParagraphs() }
+        let refresh = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            refreshDisplayParagraphs(in: highlighter.tables.map(\.fullRange))
+        }
         pendingWidthRefresh = refresh
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: refresh)
     }
@@ -336,9 +339,25 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         let changed = items != lastOutline
         lastOutline = items
         onOutlineChange?(items)
-        if changed, textView.string.range(of: "[toc]", options: .caseInsensitive) != nil {
-            refreshDisplayParagraphs()
+        if changed {
+            refreshDisplayParagraphs(in: tocLineRanges())
         }
+    }
+
+    private func tocLineRanges() -> [NSRange] {
+        let ns = textView.string as NSString
+        var ranges: [NSRange] = []
+        var search = NSRange(location: 0, length: ns.length)
+        while search.length > 0 {
+            let hit = ns.range(of: "[toc]", options: .caseInsensitive, range: search)
+            guard hit.location != NSNotFound else { break }
+            let paragraph = ns.paragraphRange(for: hit)
+            var line = ns.substring(with: paragraph)
+            if line.hasSuffix("\n") { line.removeLast() }
+            if MarkdownParser.isTOCLine(line) { ranges.append(paragraph) }
+            search = NSRange(location: NSMaxRange(paragraph), length: ns.length - NSMaxRange(paragraph))
+        }
+        return ranges
     }
 
     @objc private func statusLabelClicked() {
@@ -387,10 +406,33 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         popover.show(relativeTo: statusLabel.bounds, of: statusLabel, preferredEdge: .maxY)
     }
 
+    private var wordCountGeneration = 0
+
     private func updateWordCount() {
         let text = textView.string
-        let words = text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
-        statusLabel.stringValue = "\(words) words · \(text.count) characters"
+        wordCountGeneration += 1
+        let generation = wordCountGeneration
+        Task { [weak self] in
+            let (words, characters) = await Task.detached { Self.counts(in: text) }.value
+            guard let self, generation == wordCountGeneration else { return }
+            statusLabel.stringValue = "\(words) words · \(characters) characters"
+        }
+    }
+
+    nonisolated static func counts(in text: String) -> (words: Int, characters: Int) {
+        var words = 0
+        var characters = 0
+        var inWord = false
+        for character in text {
+            characters += 1
+            if character.isWhitespace || character.isNewline {
+                inWord = false
+            } else if !inWord {
+                inWord = true
+                words += 1
+            }
+        }
+        return (words, characters)
     }
 
     func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
@@ -1069,7 +1111,9 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
         let source = ns.substring(with: block.range)
         let dark = themeIsDark
         guard let image = MermaidRenderer.shared.image(for: source, dark: dark, onReady: { [weak self] in
-            self?.refreshDisplayParagraphs()
+            guard let self else { return }
+            let diagrams = highlighter.fences.blocks.filter { $0.language.lowercased() == "mermaid" }
+            refreshDisplayParagraphs(in: diagrams.map(\.fullRange))
         }) else {
             // Still rendering or failed: collapse the block so the code does not flash.
             return Self.collapsedParagraph()
@@ -1198,8 +1242,20 @@ final class EditorViewController: NSViewController, NSTextViewDelegate, @MainAct
 
     private func refreshDisplayParagraphs() {
         guard let storage = textView.textStorage, storage.length > 0 else { return }
+        refreshDisplayParagraphs(in: [NSRange(location: 0, length: storage.length)])
+    }
+
+    // Asks TextKit to rebuild only the paragraphs in these ranges, so one
+    // finished diagram or a moved TOC does not relayout the whole document.
+    private func refreshDisplayParagraphs(in ranges: [NSRange]) {
+        guard let storage = textView.textStorage, storage.length > 0, !ranges.isEmpty else { return }
+        let ns = storage.string as NSString
         textView.textContentStorage?.performEditingTransaction {
-            storage.edited(.editedAttributes, range: NSRange(location: 0, length: storage.length), changeInLength: 0)
+            for range in ranges {
+                let clamped = NSIntersectionRange(range, NSRange(location: 0, length: ns.length))
+                guard clamped.length > 0 else { continue }
+                storage.edited(.editedAttributes, range: ns.paragraphRange(for: clamped), changeInLength: 0)
+            }
         }
     }
 

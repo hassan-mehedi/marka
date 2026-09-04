@@ -12,11 +12,13 @@ final class MermaidRenderer: NSObject {
     }
 
     private static let retryInterval: TimeInterval = 10
+    private static let renderTimeout: Duration = .seconds(8)
 
     private var states: [String: State] = [:]
+    // One page with mermaid loaded once; diagrams render through it in turn.
     private var webView: WKWebView?
-    private var script: String?
-    private var pendingSource: String?
+    private var pageReady: Task<Bool, Never>?
+    private var queue: Task<Void, Never>?
 
     /// Returns the rendered diagram, or nil while it is still rendering or if it failed.
     /// `onReady` fires once when the render finishes, for every caller that
@@ -32,11 +34,11 @@ final class MermaidRenderer: NSObject {
         case let .failed(retryAfter):
             guard let retryAfter, Date() >= retryAfter else { return nil }
             states[key] = .rendering([onReady])
-            render(source: source, dark: dark, key: key)
+            enqueue(source: source, dark: dark, key: key)
             return nil
         case nil:
             states[key] = .rendering([onReady])
-            render(source: source, dark: dark, key: key)
+            enqueue(source: source, dark: dark, key: key)
             return nil
         }
     }
@@ -62,67 +64,124 @@ final class MermaidRenderer: NSObject {
         case timedOut
     }
 
-    private func render(source: String, dark: Bool, key: String) {
-        guard let script = loadScript() else {
-            finish(key, with: .failure(.rejected))
-            return
+    private func enqueue(source: String, dark: Bool, key: String) {
+        let previous = queue
+        queue = Task { [weak self] in
+            await previous?.value
+            guard let self else { return }
+            let result = await render(source: source, dark: dark)
+            finish(key, with: result)
         }
+    }
+
+    private func render(source: String, dark: Bool) async -> Result<NSImage, RenderError> {
+        guard let webView = await readyWebView() else { return .failure(.rejected) }
+        webView.frame = NSRect(x: 0, y: 0, width: 1200, height: 900)
+
+        let size: (width: Double, height: Double)?
+        do {
+            size = try await withTimeout(Self.renderTimeout) {
+                let value = try await webView.callAsyncJavaScript(
+                    Self.renderScript,
+                    arguments: ["source": source, "dark": dark],
+                    contentWorld: .page
+                )
+                guard let dictionary = value as? [String: Any],
+                      let width = dictionary["width"] as? Double,
+                      let height = dictionary["height"] as? Double
+                else { return nil }
+                return (width, height)
+            }
+        } catch is TimeoutError {
+            return .failure(.timedOut)
+        } catch {
+            return .failure(.rejected)
+        }
+
+        guard let size, size.width > 1, size.height > 1 else { return .failure(.rejected) }
+        let (width, height) = size
+        webView.frame = NSRect(x: 0, y: 0, width: ceil(width), height: ceil(height))
+        try? await Task.sleep(for: .milliseconds(80))
+
+        let configuration = WKSnapshotConfiguration()
+        configuration.rect = webView.bounds
+        guard let image = try? await webView.takeSnapshot(configuration: configuration) else { return .failure(.timedOut) }
+        _ = try? await webView.evaluateJavaScript("document.getElementById('out').innerHTML = ''; 0")
+        return .success(image)
+    }
+
+    private func readyWebView() async -> WKWebView? {
+        if let webView, await pageReady?.value == true { return webView }
+        guard let script = loadScript() else { return nil }
 
         let configuration = WKWebViewConfiguration()
         configuration.suppressesIncrementalRendering = true
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1200, height: 900), configuration: configuration)
         webView.setValue(false, forKey: "drawsBackground")
+        webView.loadHTMLString(Self.page(script: script), baseURL: nil)
         self.webView = webView
-
-        let html = Self.page(script: script, source: source, dark: dark)
-        webView.loadHTMLString(html, baseURL: nil)
-
-        Task { [weak self] in
-            guard let self else { return }
-            let result = await Self.snapshot(from: webView)
-            self.webView = nil
-            self.finish(key, with: result)
+        let ready = Task { () -> Bool in
+            for _ in 0..<200 {
+                try? await Task.sleep(for: .milliseconds(50))
+                let loaded = try? await webView.evaluateJavaScript("typeof __esbuild_esm_mermaid_nm !== 'undefined'")
+                if loaded as? Bool == true { return true }
+            }
+            return false
         }
+        pageReady = ready
+        guard await ready.value else {
+            self.webView = nil
+            pageReady = nil
+            return nil
+        }
+        return webView
     }
 
-    private static func snapshot(from webView: WKWebView) async -> Result<NSImage, RenderError> {
-        // Poll until mermaid reports the SVG size, then match the view to it.
-        for _ in 0..<80 {
-            try? await Task.sleep(for: .milliseconds(50))
-            let result = try? await webView.evaluateJavaScript("window.markaSize")
-            guard let size = result as? [String: Any] else { continue }
-            if size["error"] != nil { return .failure(.rejected) }
-            guard let width = size["width"] as? Double,
-                  let height = size["height"] as? Double,
-                  width > 1, height > 1
-            else { continue }
+    private struct TimeoutError: Error {}
 
-            webView.frame = NSRect(x: 0, y: 0, width: ceil(width), height: ceil(height))
-            try? await Task.sleep(for: .milliseconds(80))
-
-            let configuration = WKSnapshotConfiguration()
-            configuration.rect = webView.bounds
-            guard let image = try? await webView.takeSnapshot(configuration: configuration) else { return .failure(.timedOut) }
-            return .success(image)
+    private func withTimeout<T: Sendable>(_ duration: Duration, _ work: @escaping @MainActor () async throws -> T) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await work() }
+            group.addTask {
+                try await Task.sleep(for: duration)
+                throw TimeoutError()
+            }
+            let first = try await group.next()!
+            group.cancelAll()
+            return first
         }
-        return .failure(.timedOut)
     }
 
     private func loadScript() -> String? {
-        if let script { return script }
         guard let url = Bundle.module.url(forResource: "mermaid.min", withExtension: "js"),
               let text = try? String(contentsOf: url, encoding: .utf8)
         else { return nil }
-        script = text
         return text
     }
 
-    private static func page(script: String, source: String, dark: Bool) -> String {
-        let escaped = source
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "`", with: "\\`")
-            .replacingOccurrences(of: "$", with: "\\$")
-        return """
+    private static let renderScript = """
+    const ns = __esbuild_esm_mermaid_nm.mermaid;
+    const mermaid = ns.default ?? ns;
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: dark ? 'dark' : 'default',
+      flowchart: { useMaxWidth: false },
+      sequence: { useMaxWidth: false },
+      gantt: { useMaxWidth: false },
+      class: { useMaxWidth: false },
+      state: { useMaxWidth: false },
+      pie: { useMaxWidth: false },
+    });
+    window.markaCounter = (window.markaCounter ?? 0) + 1;
+    const { svg } = await mermaid.render('marka-diagram-' + window.markaCounter, source);
+    const out = document.getElementById('out');
+    out.innerHTML = svg;
+    const rect = out.getBoundingClientRect();
+    return { width: rect.width, height: rect.height };
+    """
+
+    private static func page(script: String) -> String {
+        """
         <!doctype html>
         <html><head><meta charset="utf-8">
         <style>
@@ -132,31 +191,6 @@ final class MermaidRenderer: NSObject {
         </head>
         <body><div id="out"></div>
         <script>\(script)</script>
-        <script>
-        (async () => {
-          try {
-            const ns = __esbuild_esm_mermaid_nm.mermaid;
-            const mermaid = ns.default ?? ns;
-            mermaid.initialize({
-              startOnLoad: false,
-              theme: \(dark ? "'dark'" : "'default'"),
-              flowchart: { useMaxWidth: false },
-              sequence: { useMaxWidth: false },
-              gantt: { useMaxWidth: false },
-              class: { useMaxWidth: false },
-              state: { useMaxWidth: false },
-              pie: { useMaxWidth: false },
-            });
-            const { svg } = await mermaid.render('marka-diagram', `\(escaped)`);
-            const out = document.getElementById('out');
-            out.innerHTML = svg;
-            const rect = out.getBoundingClientRect();
-            window.markaSize = { width: rect.width, height: rect.height };
-          } catch (error) {
-            window.markaSize = { width: 0, height: 0, error: String(error) };
-          }
-        })();
-        </script>
         </body></html>
         """
     }
