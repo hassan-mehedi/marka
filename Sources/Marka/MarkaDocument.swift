@@ -68,6 +68,7 @@ final class MarkaDocument: NSDocument {
             defer: false
         )
         window.contentViewController = DocumentContentViewController(split: split)
+        let restoredFrame = window.setFrameUsingName("MarkaDocumentWindow")
         window.setFrameAutosaveName("MarkaDocumentWindow")
         window.tabbingMode = .preferred
         window.titlebarAppearsTransparent = true
@@ -75,7 +76,7 @@ final class MarkaDocument: NSDocument {
 
         let controller = NSWindowController(window: window)
         addWindowController(controller)
-        window.center()
+        if !restoredFrame { window.center() }
     }
 
     var folderURL: URL? { fileURL?.deletingLastPathComponent() }

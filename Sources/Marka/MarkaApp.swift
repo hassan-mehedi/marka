@@ -17,6 +17,7 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = Self.makeMainMenu()
+        NSApp.windowsMenu = NSApp.mainMenu?.item(withTitle: "Window")?.submenu
         NSApp.activate(ignoringOtherApps: true)
 
         let environment = ProcessInfo.processInfo.environment
@@ -249,6 +250,23 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         formatMenuItem.submenu = formatMenu
         mainMenu.addItem(formatMenuItem)
 
+        let windowMenuItem = NSMenuItem()
+        windowMenuItem.title = "Window"
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        windowMenu.addItem(.separator())
+        let previousTab = windowMenu.addItem(withTitle: "Show Previous Tab", action: #selector(NSWindow.selectPreviousTab(_:)), keyEquivalent: "\t")
+        previousTab.keyEquivalentModifierMask = [.control, .shift]
+        let nextTab = windowMenu.addItem(withTitle: "Show Next Tab", action: #selector(NSWindow.selectNextTab(_:)), keyEquivalent: "\t")
+        nextTab.keyEquivalentModifierMask = [.control]
+        windowMenu.addItem(withTitle: "Move Tab to New Window", action: #selector(NSWindow.moveTabToNewWindow(_:)), keyEquivalent: "")
+        windowMenu.addItem(withTitle: "Merge All Windows", action: #selector(NSWindow.mergeAllWindows(_:)), keyEquivalent: "")
+        windowMenu.addItem(.separator())
+        windowMenu.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
+        windowMenuItem.submenu = windowMenu
+        mainMenu.addItem(windowMenuItem)
+
         return mainMenu
     }
 
@@ -290,18 +308,30 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         return menu
     }
 
+    // The theme list is rebuilt each time the menu opens, so a JSON theme
+    // dropped into the folder shows up without a relaunch.
+    private static let themeMenuBuilder = ThemeMenuBuilder()
+
     private static func makeThemeMenu() -> NSMenu {
         let menu = NSMenu(title: "Theme")
-        for theme in ThemeManager.shared.themes {
-            let item = menu.addItem(withTitle: theme.name, action: #selector(selectTheme(_:)), keyEquivalent: "")
-            item.representedObject = theme.name
-        }
-        menu.addItem(.separator())
-        menu.addItem(withTitle: "Open Themes Folder", action: #selector(openThemesFolder(_:)), keyEquivalent: "")
+        menu.delegate = themeMenuBuilder
+        themeMenuBuilder.menuNeedsUpdate(menu)
         return menu
     }
 
-    @objc private func selectTheme(_ sender: NSMenuItem) {
+    private final class ThemeMenuBuilder: NSObject, NSMenuDelegate {
+        func menuNeedsUpdate(_ menu: NSMenu) {
+            menu.removeAllItems()
+            for theme in ThemeManager.shared.themes {
+                let item = menu.addItem(withTitle: theme.name, action: #selector(MarkaApp.selectTheme(_:)), keyEquivalent: "")
+                item.representedObject = theme.name
+            }
+            menu.addItem(.separator())
+            menu.addItem(withTitle: "Open Themes Folder", action: #selector(MarkaApp.openThemesFolder(_:)), keyEquivalent: "")
+        }
+    }
+
+    @objc fileprivate func selectTheme(_ sender: NSMenuItem) {
         guard let name = sender.representedObject as? String else { return }
         ThemeManager.shared.select(named: name)
     }
@@ -322,7 +352,7 @@ final class MarkaApp: NSObject, NSApplicationDelegate {
         ThemeManager.shared.setFontScale(1)
     }
 
-    @objc private func openThemesFolder(_ sender: NSMenuItem) {
+    @objc fileprivate func openThemesFolder(_ sender: NSMenuItem) {
         let directory = ThemeManager.userThemesDirectory
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         NSWorkspace.shared.open(directory)
